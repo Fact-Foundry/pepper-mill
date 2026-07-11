@@ -80,6 +80,7 @@ public sealed class FileCredentialStore : ICredentialStore
         }
     }
 
+    /// <summary>Maps a tenant id to its credential file path via a hash — the id never appears in the path.</summary>
     private string PathFor(string tenantId)
     {
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(tenantId)));

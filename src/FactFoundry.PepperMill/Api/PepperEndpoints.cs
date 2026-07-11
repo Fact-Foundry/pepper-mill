@@ -73,6 +73,7 @@ public static class PepperEndpoints
             .WithDescription("Issues a new key2 via the callback URL captured at enrollment (never a request-supplied one): PepperMill calls the pinned callbackUrl with key1 and stores the new credential. Authorized by the tenant's current credential.");
     }
 
+    /// <summary>Returns a site's current pepper after validating the bearer credential against the request's tenant.</summary>
     private static async Task<IResult> FetchCurrent(
         HttpContext context,
         PepperFetchRequest request,
@@ -102,6 +103,7 @@ public static class PepperEndpoints
         return Results.Ok(new PepperFetchResponse(pepper.PepperBase64, pepper.Epoch, pepper.RotatesAtUtc));
     }
 
+    /// <summary>Enrolls a tenant: guards the callback URL, runs the handshake, and stores the resulting credential locked to the tenant.</summary>
     private static async Task<IResult> Enroll(
         HttpContext context,
         TenantEnrollmentRequest request,
@@ -146,6 +148,7 @@ public static class PepperEndpoints
         return Results.Ok();
     }
 
+    /// <summary>Revokes a tenant: destroys all its peppers and removes its credential so it can re-enroll.</summary>
     private static async Task<IResult> Revoke(
         HttpContext context,
         TenantRevokeRequest request,
@@ -173,6 +176,7 @@ public static class PepperEndpoints
         return Results.Ok();
     }
 
+    /// <summary>Force-rotates a site's pepper immediately and returns the fresh one.</summary>
     private static async Task<IResult> ForceRotate(
         HttpContext context,
         PepperRotateRequest request,
@@ -200,6 +204,7 @@ public static class PepperEndpoints
         return Results.Ok(new PepperFetchResponse(pepper.PepperBase64, pepper.Epoch, pepper.RotatesAtUtc));
     }
 
+    /// <summary>Updates a tenant's stored rotation cadence (reserved; only the monthly cadence is honored today).</summary>
     private static async Task<IResult> UpdateSchedule(
         HttpContext context,
         TenantScheduleRequest request,
@@ -224,6 +229,7 @@ public static class PepperEndpoints
         return Results.Ok();
     }
 
+    /// <summary>Issues a new <c>key2</c> for a tenant via the callback URL pinned at enrollment (never a request-supplied one).</summary>
     private static async Task<IResult> RotateCredential(
         HttpContext context,
         CredentialRotateRequest request,
@@ -261,6 +267,7 @@ public static class PepperEndpoints
         return Results.Ok();
     }
 
+    /// <summary>Extracts the bearer token from the <c>Authorization</c> header, or null if it is absent or malformed.</summary>
     private static string? GetBearerCredential(HttpContext context)
     {
         var header = context.Request.Headers.Authorization.ToString();

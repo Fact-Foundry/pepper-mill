@@ -110,6 +110,7 @@ public sealed class EncryptedFilePepperStore : IPepperStore
         return result;
     }
 
+    /// <summary>Maps a (tenant, site) pair to its encrypted file path via a collision-resistant hash — the ids never appear in the path.</summary>
     private string PathFor(string tenantId, string siteId)
     {
         // Length-prefix each component so distinct (tenant, site) pairs can never collide onto the
@@ -119,6 +120,7 @@ public sealed class EncryptedFilePepperStore : IPepperStore
         return Path.Combine(_directory, hash + ".pepper");
     }
 
+    /// <summary>Serializes and AES-256-GCM-encrypts a pepper record into <c>nonce ‖ tag ‖ ciphertext</c>.</summary>
     private byte[] Encrypt(StoredPepper pepper)
     {
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(pepper, JsonOptions);
@@ -136,6 +138,7 @@ public sealed class EncryptedFilePepperStore : IPepperStore
         return output;
     }
 
+    /// <summary>Reverses <see cref="Encrypt"/>: decrypts and deserializes a stored pepper record.</summary>
     private StoredPepper Decrypt(byte[] payload)
     {
         var nonce = payload[..NonceSize];
