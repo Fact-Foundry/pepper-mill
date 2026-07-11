@@ -25,6 +25,21 @@ public sealed record TenantEnrollmentRequest(string TenantId, string CallbackUrl
 /// <param name="TenantId">The tenant to revoke.</param>
 public sealed record TenantRevokeRequest(string TenantId);
 
+/// <summary>Force-rotate request: destroys a site's current pepper and issues a fresh one now.</summary>
+/// <param name="TenantId">The tenant that owns the site (must match the presented credential).</param>
+/// <param name="SiteId">The site whose pepper to rotate.</param>
+public sealed record PepperRotateRequest(string TenantId, string SiteId);
+
+/// <summary>Schedule-update request: changes a tenant's rotation cadence.</summary>
+/// <param name="TenantId">The tenant to update (must match the presented credential).</param>
+/// <param name="RotationIntervalDays">New cadence in days; null resets to the default monthly cadence.</param>
+public sealed record TenantScheduleRequest(string TenantId, int? RotationIntervalDays);
+
+/// <summary>Credential-rotation request: issues a new <c>key2</c> via the pinned callback URL.</summary>
+/// <param name="TenantId">The tenant to rotate (must match the presented current credential).</param>
+/// <param name="Key1">A fresh per-request nonce the client will verify when PepperMill calls back.</param>
+public sealed record CredentialRotateRequest(string TenantId, string Key1);
+
 /// <summary>Minimal-API endpoints for pepper custody.</summary>
 public static class PepperEndpoints
 {
@@ -44,6 +59,18 @@ public static class PepperEndpoints
         v1.MapPost("/webhooks/revoke", Revoke)
             .WithSummary("Revoke a tenant (destroy its peppers, un-enroll)")
             .WithDescription("Destroys all of the tenant's peppers and removes its credential, so the tenant can be enrolled again. Authorized by the tenant's current credential.");
+
+        v1.MapPost("/peppers/rotate", ForceRotate)
+            .WithSummary("Force-rotate a site's pepper now")
+            .WithDescription("Destroys the site's current pepper and issues a fresh one immediately, returning it. Authorized by the tenant's current credential.");
+
+        v1.MapPost("/tenants/schedule", UpdateSchedule)
+            .WithSummary("Update a tenant's rotation cadence")
+            .WithDescription("Stores a new rotationIntervalDays for the tenant. Authorized by the tenant's current credential. (Only the monthly cadence is honored today; the value is reserved.)");
+
+        v1.MapPost("/webhooks/rotate-credential", RotateCredential)
+            .WithSummary("Rotate a tenant's credential (key2)")
+            .WithDescription("Issues a new key2 via the callback URL captured at enrollment (never a request-supplied one): PepperMill calls the pinned callbackUrl with key1 and stores the new credential. Authorized by the tenant's current credential.");
     }
 
     private static async Task<IResult> FetchCurrent(
@@ -143,6 +170,94 @@ public static class PepperEndpoints
         }
         await credentials.DeleteAsync(request.TenantId, context.RequestAborted);
         await audit.RecordAsync(new AuditEntry(clock.UtcNow, "tenant.revoke", request.TenantId), context.RequestAborted);
+        return Results.Ok();
+    }
+
+    private static async Task<IResult> ForceRotate(
+        HttpContext context,
+        PepperRotateRequest request,
+        IEntitlementProvider entitlement,
+        PepperService peppers,
+        IAuditLog audit,
+        IClock clock)
+    {
+        if (string.IsNullOrWhiteSpace(request.TenantId))
+            return Results.BadRequest(new { error = "tenantId is required." });
+        if (string.IsNullOrWhiteSpace(request.SiteId))
+            return Results.BadRequest(new { error = "siteId is required." });
+
+        var credential = GetBearerCredential(context);
+        if (credential is null)
+            return Results.Json(new { error = "Missing bearer credential." }, statusCode: 401);
+        if (!await entitlement.IsEntitledAsync(credential, request.TenantId, request.SiteId, context.RequestAborted))
+        {
+            await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.rotate.denied", request.TenantId, request.SiteId), context.RequestAborted);
+            return Results.Json(new { error = "Not entitled for this site." }, statusCode: 403);
+        }
+
+        var pepper = await peppers.ForceRotateAsync(request.TenantId, request.SiteId, context.RequestAborted);
+        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.rotate", request.TenantId, request.SiteId, pepper.Epoch), context.RequestAborted);
+        return Results.Ok(new PepperFetchResponse(pepper.PepperBase64, pepper.Epoch, pepper.RotatesAtUtc));
+    }
+
+    private static async Task<IResult> UpdateSchedule(
+        HttpContext context,
+        TenantScheduleRequest request,
+        IEntitlementProvider entitlement,
+        ICredentialStore credentials,
+        IAuditLog audit,
+        IClock clock)
+    {
+        var credential = GetBearerCredential(context);
+        if (credential is null)
+            return Results.Json(new { error = "Missing bearer credential." }, statusCode: 401);
+        if (string.IsNullOrWhiteSpace(request.TenantId)
+            || !await entitlement.IsEntitledAsync(credential, request.TenantId, siteId: string.Empty, context.RequestAborted))
+            return Results.Json(new { error = "Not entitled for this tenant." }, statusCode: 403);
+
+        var record = await credentials.GetAsync(request.TenantId, context.RequestAborted);
+        if (record is null)
+            return Results.Json(new { error = "Tenant is not enrolled." }, statusCode: 403);
+
+        await credentials.SaveAsync(record with { RotationIntervalDays = request.RotationIntervalDays }, context.RequestAborted);
+        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "tenant.schedule.update", request.TenantId), context.RequestAborted);
+        return Results.Ok();
+    }
+
+    private static async Task<IResult> RotateCredential(
+        HttpContext context,
+        CredentialRotateRequest request,
+        IEntitlementProvider entitlement,
+        ICredentialStore credentials,
+        ICallbackClient callbackClient,
+        IAuditLog audit,
+        IClock clock)
+    {
+        if (string.IsNullOrWhiteSpace(request.Key1))
+            return Results.BadRequest(new { error = "key1 is required." });
+
+        var credential = GetBearerCredential(context);
+        if (credential is null)
+            return Results.Json(new { error = "Missing bearer credential." }, statusCode: 401);
+        if (string.IsNullOrWhiteSpace(request.TenantId)
+            || !await entitlement.IsEntitledAsync(credential, request.TenantId, siteId: string.Empty, context.RequestAborted))
+            return Results.Json(new { error = "Not entitled for this tenant." }, statusCode: 403);
+
+        var record = await credentials.GetAsync(request.TenantId, context.RequestAborted);
+        if (record is null)
+            return Results.Json(new { error = "Tenant is not enrolled." }, statusCode: 403);
+
+        // Call back to the URL pinned at enrollment — never a request-supplied one — so an update
+        // cannot redirect the handshake to a rogue endpoint.
+        var newKey2 = await callbackClient.RequestCredentialAsync(record.CallbackUrl, request.TenantId, request.Key1, context.RequestAborted);
+        if (string.IsNullOrEmpty(newKey2))
+        {
+            await audit.RecordAsync(new AuditEntry(clock.UtcNow, "tenant.credential.rotate.failed", request.TenantId), context.RequestAborted);
+            return Results.Json(new { error = "Rotation callback did not return a credential." }, statusCode: 502);
+        }
+
+        await credentials.SaveAsync(record with { Key2Hash = CredentialHasher.Hash(newKey2) }, context.RequestAborted);
+        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "tenant.credential.rotate", request.TenantId), context.RequestAborted);
         return Results.Ok();
     }
 

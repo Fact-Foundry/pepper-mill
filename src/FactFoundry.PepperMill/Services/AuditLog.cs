@@ -11,7 +11,7 @@ namespace FactFoundry.PepperMill.Services;
 /// <param name="Detail">Optional free-text context (never a secret).</param>
 public sealed record AuditEntry(DateTimeOffset Timestamp, string Event, string TenantId, string? SiteId = null, string? Detail = null);
 
-/// <summary>Appends audit records. Hosted edition would delegate to the platform's audit log.</summary>
+/// <summary>Appends audit records. An external provider could delegate this elsewhere.</summary>
 public interface IAuditLog
 {
     /// <summary>Records an audit entry.</summary>

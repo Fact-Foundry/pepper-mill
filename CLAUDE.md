@@ -8,20 +8,24 @@ TelemetryForge's visitor-identity hashes — so the secret that could reverse a 
 outside the customer's infrastructure. Licensed under AGPL-3.0.
 
 It does one hard thing well: **generate → store → serve → rotate → destroy** peppers. *Who* is
-entitled, billing, and audit UI are delegated (to `fact-foundry-platform` in the hosted edition),
-not reimplemented here.
+entitled, and any UI around it, is delegated to a pluggable entitlement provider, not reimplemented
+here.
 
 ## First Steps
 
-**Read `docs/design/peppermill-spec.md`** — the full design. Operational detail is in
-`docs/operations.md`.
+**Read `docs/design/decisions/`** (start with ADR-001) and `docs/user-guide.md` for the current
+auth/provisioning model. Operational detail is in `docs/operations.md`.
 
 ## Architecture
 
-- .NET 10, ASP.NET Minimal API. No database — peppers are held in an encrypted file store.
+- .NET 10, ASP.NET Minimal API. No database — peppers and per-tenant credential records are held as
+  files in an encrypted store (peppers encrypted at rest; credential records hold hashes only).
 - **OpenAPI + Scalar** for the interactive API reference (`/scalar/v1`); no Swashbuckle.
-- One codebase, a pluggable `IEntitlementProvider`: `Local` (shared server credential, OSS) vs
-  `Platform` (delegates to `fact-foundry-platform`, currently stubbed).
+- A tenant enrolls via a callback handshake to establish its bearer credential (`key2`); a fetch
+  resolves that credential to a tenant, so the request body's `tenantId` is a cross-check, never the
+  authority. Peppers are per `(tenantId, siteId)`; the credential is per tenant.
+- One codebase, a pluggable `IEntitlementProvider`: `Local` (resolves against enrolled tenant
+  credentials) vs `Platform` (external delegation, currently stubbed).
 
 ## Project Structure
 
@@ -40,9 +44,12 @@ not reimplemented here.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/peppers/current` | Return a site's current pepper (bearer server credential + entitlement) |
-| `POST /v1/webhooks/provision` | Ensure a site's pepper exists (platform lifecycle) |
-| `POST /v1/webhooks/revoke` | Destroy a site's pepper (platform lifecycle) |
+| `POST /v1/peppers/current` | Return a site's current pepper (bearer `key2` → tenant) |
+| `POST /v1/peppers/rotate` | Force-rotate a site's pepper now (bearer `key2`) |
+| `POST /v1/webhooks/provision` | Enroll a tenant — establish `key2` via the callback handshake |
+| `POST /v1/webhooks/revoke` | Revoke a tenant — destroy its peppers and un-enroll (bearer `key2`) |
+| `POST /v1/webhooks/rotate-credential` | Rotate a tenant's `key2` via the pinned callback (bearer `key2`) |
+| `POST /v1/tenants/schedule` | Update a tenant's rotation cadence (bearer `key2`) |
 | `GET /health` | Liveness probe |
 
 ## Coding Standards

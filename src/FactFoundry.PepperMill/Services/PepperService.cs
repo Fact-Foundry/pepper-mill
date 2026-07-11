@@ -41,6 +41,19 @@ public sealed class PepperService
     }
 
     /// <summary>
+    /// Forces a fresh pepper for a site immediately, destroying any current one (manual rotation).
+    /// The new pepper belongs to the current epoch; a subsequent fetch returns it unchanged until the
+    /// epoch rolls over. Creates the pepper if the site had none.
+    /// </summary>
+    public async Task<PepperResult> ForceRotateAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
+    {
+        var epoch = Epoch.Current(_clock.UtcNow);
+        var fresh = new StoredPepper(tenantId, siteId, epoch.Id, Convert.ToBase64String(PepperGenerator.Generate()), _clock.UtcNow);
+        await _store.SaveAsync(fresh, cancellationToken);
+        return new PepperResult(fresh.PepperBase64, fresh.Epoch, epoch.RotatesAtUtc);
+    }
+
+    /// <summary>
     /// Rotates every stored pepper whose epoch is no longer current — generating a new one and
     /// destroying the old. Returns how many were rotated. Runs on a timer so destruction happens
     /// even for sites that aren't currently fetching.

@@ -9,8 +9,8 @@ public sealed class PepperMillOptions
     public const string SectionName = "PepperMill";
 
     /// <summary>
-    /// How requests are authorized: <c>Local</c> (a shared server credential from config) or
-    /// <c>Platform</c> (delegate entitlement to fact-foundry-platform — hosted edition).
+    /// How requests are authorized: <c>Local</c> (resolve the presented credential against the enrolled
+    /// tenant records) or <c>Platform</c> (delegate entitlement to an external provider — not implemented).
     /// </summary>
     public string EntitlementMode { get; set; } = "Local";
 

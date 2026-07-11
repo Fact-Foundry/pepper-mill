@@ -11,19 +11,22 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace FactFoundry.PepperMill.Tests;
 
-/// <summary>End-to-end tests driving the real pepper endpoints via the hosted app.</summary>
+/// <summary>End-to-end tests driving the real pepper endpoints via the running app.</summary>
 public class PepperEndpointsTests : IDisposable
 {
     private const string Tenant = "tenant-1";
     private const string CallbackUrl = "https://callback.test/hook";
-    private const string EnrolledKey2 = "enrolled-key2-abcdef";
+    private const string Key1 = "k1";
     private readonly string _storeDir = Path.Combine(Path.GetTempPath(), "pm-api-" + Guid.NewGuid());
 
-    /// <summary>Stands in for the client callback endpoint — always issues the same <c>key2</c>.</summary>
+    /// <summary>The <c>key2</c> the stand-in client issues for a given <c>key1</c> — so a rotation (new key1) yields a new key2.</summary>
+    private static string Key2For(string key1) => $"k2::{key1}";
+
+    /// <summary>Stands in for the client callback endpoint — issues a <c>key2</c> derived from the challenge <c>key1</c>.</summary>
     private sealed class FakeCallbackClient : ICallbackClient
     {
         public Task<string?> RequestCredentialAsync(string callbackUrl, string tenantId, string key1, CancellationToken cancellationToken = default)
-            => Task.FromResult<string?>(EnrolledKey2);
+            => Task.FromResult<string?>(Key2For(key1));
     }
 
     private sealed class Factory(string storeDir) : WebApplicationFactory<Program>
@@ -70,7 +73,7 @@ public class PepperEndpointsTests : IDisposable
         var client = Client();
         await EnrollTenant(client);
 
-        var resp = await client.SendAsync(Fetch("site-1", EnrolledKey2));
+        var resp = await client.SendAsync(Fetch("site-1", Key2For(Key1)));
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<PepperFetchResponse>();
@@ -85,8 +88,8 @@ public class PepperEndpointsTests : IDisposable
         var client = Client();
         await EnrollTenant(client);
 
-        var first = await (await client.SendAsync(Fetch("site-1", EnrolledKey2))).Content.ReadFromJsonAsync<PepperFetchResponse>();
-        var second = await (await client.SendAsync(Fetch("site-1", EnrolledKey2))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+        var first = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+        var second = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
 
         Assert.Equal(first!.Pepper, second!.Pepper);
     }
@@ -114,7 +117,7 @@ public class PepperEndpointsTests : IDisposable
     [Fact]
     public async Task Fetch_UnenrolledTenant_Returns403()
     {
-        var resp = await Client().SendAsync(Fetch("site-1", EnrolledKey2, tenantId: "not-enrolled"));
+        var resp = await Client().SendAsync(Fetch("site-1", Key2For(Key1), tenantId: "not-enrolled"));
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
@@ -125,7 +128,7 @@ public class PepperEndpointsTests : IDisposable
         {
             Content = JsonContent.Create(new { siteId = "site-1" }),
         };
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", EnrolledKey2);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Key2For(Key1));
 
         var resp = await Client().SendAsync(req);
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
@@ -146,6 +149,76 @@ public class PepperEndpointsTests : IDisposable
     {
         var resp = await Client().SendAsync(Enroll(Tenant, callbackUrl: "https://evil.example/hook"));
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task ForceRotate_IssuesADifferentPepper()
+    {
+        var client = Client();
+        await EnrollTenant(client);
+        var before = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+
+        var rotate = new HttpRequestMessage(HttpMethod.Post, "/v1/peppers/rotate")
+        {
+            Content = JsonContent.Create(new { tenantId = Tenant, siteId = "site-1" }),
+        };
+        rotate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Key2For(Key1));
+        var rotateResp = await client.SendAsync(rotate);
+
+        Assert.Equal(HttpStatusCode.OK, rotateResp.StatusCode);
+        var rotated = await rotateResp.Content.ReadFromJsonAsync<PepperFetchResponse>();
+        Assert.NotEqual(before!.Pepper, rotated!.Pepper);
+
+        // A subsequent fetch returns the rotated value, not the old one.
+        var after = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+        Assert.Equal(rotated.Pepper, after!.Pepper);
+    }
+
+    [Fact]
+    public async Task ForceRotate_WrongCredential_Returns403()
+    {
+        var client = Client();
+        await EnrollTenant(client);
+
+        var rotate = new HttpRequestMessage(HttpMethod.Post, "/v1/peppers/rotate")
+        {
+            Content = JsonContent.Create(new { tenantId = Tenant, siteId = "site-1" }),
+        };
+        rotate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "wrong");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(rotate)).StatusCode);
+    }
+
+    [Fact]
+    public async Task RotateCredential_RetiresOldKeyAndActivatesNew()
+    {
+        var client = Client();
+        await EnrollTenant(client);
+        var oldKey2 = Key2For(Key1);
+
+        var rotate = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/rotate-credential")
+        {
+            Content = JsonContent.Create(new { tenantId = Tenant, key1 = "k1-rot" }),
+        };
+        rotate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", oldKey2);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(rotate)).StatusCode);
+
+        // The pinned callback issued key2 for the new key1; the old credential is retired.
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Fetch("site-1", oldKey2))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Fetch("site-1", Key2For("k1-rot")))).StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateSchedule_WithValidCredential_Returns200()
+    {
+        var client = Client();
+        await EnrollTenant(client);
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/v1/tenants/schedule")
+        {
+            Content = JsonContent.Create(new { tenantId = Tenant, rotationIntervalDays = 90 }),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Key2For(Key1));
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(req)).StatusCode);
     }
 
     [Fact]

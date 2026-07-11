@@ -1,12 +1,13 @@
 # PepperMill — local / self-hosted container stack.
 #
-#   1. cp .env.example .env   &&   edit .env  (set a real key + credential)
+#   1. cp .env.example .env   &&   edit .env  (set a real storage key)
 #   2. docker compose up -d --build
 #   3. curl http://localhost:5130/health
 #
-# The two PepperMill__* secrets are REQUIRED — compose refuses to start without
-# them (the `:?` guard below), matching the server's own fail-fast on a missing
-# storage key. Secrets come from the environment / .env, never from this file.
+# The storage key is REQUIRED — compose refuses to start without it (the `:?`
+# guard below), matching the server's own fail-fast. It comes from the
+# environment / .env, never from this file. Tenant credentials are NOT
+# configured here — each tenant establishes its own via enrollment.
 
 services:
   peppermill:
@@ -20,8 +21,9 @@ services:
     environment:
       PepperMill__EntitlementMode: Local
       PepperMill__StorageKeyBase64: ${PEPPERMILL_STORAGE_KEY:?set PEPPERMILL_STORAGE_KEY in .env — base64 of 32 random bytes}
-      PepperMill__LocalServerCredential: ${PEPPERMILL_CREDENTIAL:?set PEPPERMILL_CREDENTIAL in .env — a long random string}
       PepperMill__StorePath: /data/peppers
+      # To enroll tenants, allowlist your servers' enrollment callback hosts, e.g.:
+      #   PepperMill__CallbackAllowedHosts__0: tf-server-1.internal
     volumes:
       # Durable, encrypted-at-rest pepper store + audit log. Back this up.
       - peppermill-data:/data

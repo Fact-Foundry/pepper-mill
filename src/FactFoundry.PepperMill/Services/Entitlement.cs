@@ -43,9 +43,8 @@ public sealed class LocalEntitlementProvider : IEntitlementProvider
 }
 
 /// <summary>
-/// Hosted-edition entitlement: delegates to fact-foundry-platform. Not yet implemented — the hosted
-/// PepperMill will validate the server credential and the site's key-custody subscription via the
-/// platform's <c>ILicenseService</c> / <c>ProvisioningKeyService</c> / <c>IMachineActivationService</c>.
+/// Platform entitlement: delegates the entitlement decision to an external provider. Not yet
+/// implemented — it denies every request and logs a warning until wired up.
 /// </summary>
 public sealed class PlatformEntitlementProvider : IEntitlementProvider
 {

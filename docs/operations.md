@@ -1,7 +1,7 @@
 # PepperMill — Operations
 
-How to configure, run, and operate PepperMill. See the architecture in
-[`design/peppermill-spec.md`](design/peppermill-spec.md).
+How to configure, run, and operate PepperMill. See the design rationale in
+[`design/decisions/`](design/decisions).
 
 ## Configuration
 
@@ -9,10 +9,10 @@ All settings live under the `PepperMill` configuration section (env vars use `Pe
 
 | Key | Meaning | Required |
 |---|---|---|
-| `EntitlementMode` | `Local` (shared credential) or `Platform` (delegate to fact-foundry-platform) | default `Local` |
+| `EntitlementMode` | `Local` (resolve against enrolled tenant credentials) or `Platform` (external delegation, not implemented) | default `Local` |
 | `StorageKeyBase64` | base64 of a **32-byte** AES-256 master key that encrypts peppers at rest | **yes, outside Development** |
-| `LocalServerCredential` | the shared server credential accepted in `Local` mode | yes in Local mode |
-| `StorePath` | directory holding encrypted pepper files + the audit log | default `peppers` |
+| `CallbackAllowedHosts` | hostnames PepperMill may call back to during enrollment (SSRF guard); indexed env keys `__0`, `__1`, … | yes, to enroll |
+| `StorePath` | directory holding encrypted pepper files, credential records + the audit log | default `peppers` |
 
 ### Generating the storage key
 
@@ -24,7 +24,7 @@ Provide it out-of-band — an environment variable or secret store, **never** co
 
 ```bash
 export PepperMill__StorageKeyBase64="<base64-32-bytes>"
-export PepperMill__LocalServerCredential="<long-random-credential>"
+export PepperMill__CallbackAllowedHosts__0="tf-server-1.internal"
 ```
 
 If `StorageKeyBase64` is unset, PepperMill runs only in `Development` (with an **ephemeral** key —
@@ -52,24 +52,24 @@ no analytics or behavioral data is affected).
 
 ## Client contract (TelemetryForge servers)
 
-- A server fetches `POST /v1/peppers/current` at startup with its bearer credential, holds the pepper
-  **in memory only**, and re-fetches after `rotatesAtUtc` (and periodically as a tripwire — an
+- A server fetches `POST /v1/peppers/current` at startup with its `key2` bearer credential, holds the
+  pepper **in memory only**, and re-fetches after `rotatesAtUtc` (and periodically as a tripwire — an
   unexpected pepper change is an incident signal).
 - **Fail-open for identity only:** if PepperMill is unreachable, the server keeps ingesting with
   `IsFirstVisit = null` for the outage; it must never block analytics or retain raw IPs to backfill.
 
 ## Auditing
 
-Every fetch / provision / revoke appends a JSON line to `StorePath/audit.log`. Entries carry
-metadata only (timestamp, event, site id, epoch) — **never** pepper material. In the hosted edition
-this is delegated to the platform's audit log with exportable access records.
+Every fetch / enroll / revoke / rotate appends a JSON line to `StorePath/audit.log`. Entries carry
+metadata only (timestamp, event, tenant/site id, epoch) — **never** pepper or credential material.
 
 ## Deployment notes
 
-- Run PepperMill in a **separate trust domain** from customer infrastructure — that separation is the
-  entire value of hosted custody.
+- Run PepperMill on a private network in a **separate trust domain** from the servers it serves — that
+  separation is the point of external custody.
 - Persist `StorePath` on durable storage; back it up encrypted (it already is, at rest).
-- Terminate TLS in front of it; the credential is a bearer token.
+- HTTPS is strongly recommended (and essential if the service is ever exposed beyond its private
+  network), but not forced — an internal segment may legitimately run plain HTTP.
 - Health probe: `GET /health`.
 
 ## Interactive API (Scalar)

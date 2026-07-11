@@ -7,6 +7,7 @@
 - Callback-based tenant enrollment — `POST /v1/webhooks/provision` establishes a tenant's bearer credential (`key2`) via a callback handshake (PepperMill calls the client's `callbackUrl` with `key1`; the client returns `key2`), stored one-shot/locked; the outbound callback is SSRF-guarded by a `CallbackAllowedHosts` allowlist and refuses non-allowlisted or malformed URLs before any request is made
 - Credential-derived tenant auth — `POST /v1/peppers/current` resolves the presented bearer against the enrolled tenant's stored hash; a credential is entitled only to its own tenant's sites (the body `tenantId` is a cross-check, never the authority). Replaces the shared `LocalServerCredential`, which is removed from config
 - `POST /v1/webhooks/revoke` — destroys all of a tenant's peppers and removes its credential (tenant-level un-enroll, so the tenant can re-enroll), authorized by the tenant's current credential
+- Update/rotate operations — `POST /v1/peppers/rotate` (force-rotate a site's pepper now, returning the fresh one), `POST /v1/webhooks/rotate-credential` (issue a new `key2` via the callback URL *pinned at enrollment* — never a request-supplied one), and `POST /v1/tenants/schedule` (change rotation cadence; stored, monthly-only honored); all authorized by the tenant's current credential
 - Per-tenant credential store (`ICredentialStore` / `FileCredentialStore`) — one JSON file per tenant (named by a hash of the tenant id) holding only a hash of the tenant's bearer credential plus non-secret provisioning metadata (callback URL, rotation cadence, lock); first slice of the ADR-001 tenant-auth work
 - Multi-tenant peppers — a pepper is now keyed by the composite `(tenantId, siteId)`; a `siteId` is unique only within its tenant, so same-named sites across tenants are fully isolated. `tenantId` is now required on `POST /v1/peppers/current` and the provision/revoke webhooks, carried through the store (composite file-name hash), entitlement checks, and audit records
 - Initial PepperMill service — the key-custody server from the spec: generate → store → serve → rotate → destroy per-site peppers
@@ -23,5 +24,5 @@
 ### Docs
 
 - ADR-001 (`docs/design/decisions/001-tenant-auth-and-provisioning.md`) — tenant authentication & pepper provisioning: the credential (not the client) decides the tenant, callback enrollment handshake with a one-shot lock and pinned callback URL, per-site peppers, file-based persistence (no database), and HTTPS recommended (not forced) for internal deployments
-- `README.md`, operations guide (`docs/operations.md`), and the design spec (`docs/design/peppermill-spec.md`)
+- `README.md`, operations guide (`docs/operations.md`), and design decisions (`docs/design/decisions/`)
 - User Guide (`docs/user-guide.md`) — task-oriented walkthrough: server setup, creating a site, fetching a pepper, health, Scalar UI, containerized run, operate/maintain, and troubleshooting

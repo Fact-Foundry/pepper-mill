@@ -1,11 +1,11 @@
 # PepperMill — User Guide
 
-A step-by-step walkthrough for running and operating PepperMill (the OSS / Local edition):
-set up the server, create sites, fetch peppers, and keep it healthy.
+A step-by-step walkthrough for running and operating PepperMill (with the Local entitlement mode):
+set up the server, enroll tenants, fetch peppers, and keep it healthy.
 
 This guide is task-oriented. For the reference tables (every config key, the client contract, the
-security rationale) see [`operations.md`](operations.md); for the architecture see
-[`design/peppermill-spec.md`](design/peppermill-spec.md).
+security rationale) see [`operations.md`](operations.md); for the design rationale see
+[`design/decisions/`](design/decisions).
 
 > **What PepperMill is, in one line:** a headless key-custody API. It generates, encrypts, serves, and
 > monthly-rotates a per-site secret "pepper" so the key that could reverse a visitor hash lives outside
@@ -16,7 +16,7 @@ security rationale) see [`operations.md`](operations.md); for the architecture s
 ## Contents
 
 1. [Set up the server](#1-set-up-the-server)
-2. [Set up a new site](#2-set-up-a-new-site)
+2. [Enroll a tenant](#2-enroll-a-tenant)
 3. [Fetch a pepper](#3-fetch-a-pepper)
 4. [Check server health](#4-check-server-health)
 5. [Run the Scalar UI for testing](#5-run-the-scalar-ui-for-testing)
@@ -31,7 +31,8 @@ security rationale) see [`operations.md`](operations.md); for the architecture s
 ### Prerequisites
 
 - **.NET 10 SDK** (to build/run from source) — or **Docker** (see [§6](#6-run-it-as-a-container), the easiest path).
-- A place to keep two secrets out of source control: the **storage key** and the **server credential**.
+- One secret to keep out of source control: the **storage key** (the master key that encrypts peppers at rest).
+  Tenant credentials are **not** configured here — each tenant establishes its own during [enrollment](#2-enroll-a-tenant).
 
 ### Option A — run from source (development)
 
@@ -42,9 +43,10 @@ dotnet run
 
 In `Development` everything needed is preconfigured:
 
-- the server credential is **`dev-server-credential`**, and
 - the storage key is **ephemeral** — a fresh one is generated each start, so **peppers do not survive a
   restart**. That is intentional for dev; a warning is logged at startup.
+- `localhost` and `127.0.0.1` are **allowlisted as callback hosts**, so you can run a local enrollment
+  callback without extra config.
 
 The console prints the URL (default **`http://localhost:5130`**). Note that `/` returns **404 by design** —
 PepperMill is an API, not a site. Confirm it's up with [`/health`](#4-check-server-health).
@@ -52,7 +54,7 @@ PepperMill is an API, not a site. Confirm it's up with [`/health`](#4-check-serv
 ### Option B — configure for real use (production)
 
 Outside `Development`, PepperMill **refuses to start without a storage key** — a custody service must not
-silently lose the key that gives peppers continuity. You must provide two values.
+silently lose the key that gives peppers continuity.
 
 **1. Generate a 32-byte storage key** (base64):
 
@@ -60,19 +62,13 @@ silently lose the key that gives peppers continuity. You must provide two values
 head -c 32 /dev/urandom | base64
 ```
 
-**2. Generate a strong server credential** (any long random string):
-
-```bash
-head -c 32 /dev/urandom | base64
-```
-
-**3. Supply them out-of-band** — environment variables (note the `__` double-underscore that maps to the
-`PepperMill:` config section), never committed to source:
+**2. Supply configuration out-of-band** — environment variables (note the `__` double-underscore that maps to
+the `PepperMill:` config section), never committed to source:
 
 ```bash
 export PepperMill__StorageKeyBase64="<base64-of-32-bytes>"
-export PepperMill__LocalServerCredential="<long-random-credential>"
-export PepperMill__StorePath="/var/lib/peppermill"   # durable path; default is ./peppers
+export PepperMill__CallbackAllowedHosts__0="tf-server-1.internal"   # hosts PepperMill may call back
+export PepperMill__StorePath="/var/lib/peppermill"                  # durable path; default is ./peppers
 export ASPNETCORE_ENVIRONMENT="Production"
 
 dotnet FactFoundry.PepperMill.dll
@@ -81,62 +77,83 @@ dotnet FactFoundry.PepperMill.dll
 | Setting | Meaning | Required |
 |---|---|---|
 | `PepperMill__StorageKeyBase64` | base64 of a **32-byte** AES-256 key that encrypts peppers at rest | **yes (outside Development)** |
-| `PepperMill__LocalServerCredential` | the shared bearer credential your servers present | **yes (Local mode)** |
-| `PepperMill__StorePath` | directory for the encrypted pepper files + `audit.log` | no — default `peppers` |
-| `PepperMill__EntitlementMode` | `Local` (this guide) or `Platform` (hosted, delegates to fact-foundry-platform) | no — default `Local` |
+| `PepperMill__CallbackAllowedHosts__N` | hostnames PepperMill may call back to during enrollment (SSRF guard); empty ⇒ enrollment refused | **yes (to enroll)** |
+| `PepperMill__StorePath` | directory for the encrypted pepper files, credential records, and `audit.log` | no — default `peppers` |
+| `PepperMill__EntitlementMode` | `Local` (this guide) or `Platform` (external delegation, not implemented) | no — default `Local` |
 
-> **Put TLS in front of it.** The credential is a bearer token; terminate HTTPS at a reverse proxy (or the
-> platform ingress) and run PepperMill in a **separate trust domain** from your analytics servers — that
-> separation is the whole point.
+> **Keep it internal.** PepperMill is meant to run on a private network, reachable only by your servers.
+> HTTPS is strongly recommended (and essential if it's ever more exposed) but not forced — an internal
+> segment may legitimately run plain HTTP. Run PepperMill in a **separate trust domain** from your analytics
+> servers — that separation is the whole point.
 
 ---
 
-## 2. Set up a new site
+## 2. Enroll a tenant
 
-**There is no registration step and no admin UI.** A site is identified by a `tenantId` **and** a `siteId`
-string you choose (e.g. tenant `acme`, site `acme-blog`). A `siteId` is unique only **within its tenant**, so
-the same `siteId` under two different tenants is two isolated peppers — cross-tenant collisions are impossible.
-A site comes into existence the first time PepperMill sees that `(tenantId, siteId)` pair — either when a
-server **fetches** its pepper, or when you **provision** it explicitly. Each site gets its own isolated,
-independently-rotated pepper, stored in its own encrypted file.
+Before a server can fetch peppers, its **tenant** enrolls once to establish a bearer credential (`key2`).
+Enrollment is a **server-to-server handshake**, not a manual step — but here's exactly what happens so you can
+implement the client side.
 
-To create a site up front (e.g. right after a customer signs up), call **provision**:
+**The handshake:**
+
+1. Your server exposes a **callback endpoint** that, given `{ tenantId, key1 }`, verifies `key1` against the
+   request it just initiated and responds `{ "key2": "<a strong random secret it generates and stores>" }`.
+2. Your server triggers enrollment:
+
+   ```bash
+   curl -X POST http://localhost:5130/v1/webhooks/provision \
+     -H "Content-Type: application/json" \
+     -d '{"tenantId":"acme","callbackUrl":"https://tf-server-1.internal/pepper-callback","key1":"<fresh-nonce>"}'
+   # → 200 OK   (PepperMill called your callbackUrl, received key2, and stored only its hash)
+   ```
+
+3. PepperMill calls your `callbackUrl` with `{ tenantId, key1 }`, receives `key2`, and stores **only a hash**
+   of it, **locked** to that tenant. Your server keeps `key2` (in its environment) for every future fetch.
+
+Notes:
+
+- **`callbackUrl`'s host must be allowlisted** (`CallbackAllowedHosts`), or enrollment is refused with `403`
+  before any outbound call — this is the SSRF guard.
+- **Enrollment is one-shot.** A second `provision` for an already-enrolled tenant returns `409`. To re-enroll
+  (rebuild, lost key), [revoke](#removing-a-tenant) the tenant first, or rotate the credential (below).
+- **The client, not PepperMill, generates `key2`** — so its strength is on you; use a 256-bit CSPRNG value.
+
+### Rotating a tenant's credential
+
+To issue a fresh `key2` without un-enrolling — PepperMill calls back to the **URL pinned at enrollment** (never
+a request-supplied one), authorized by the current `key2`:
 
 ```bash
-curl -X POST http://localhost:5130/v1/webhooks/provision \
-  -H "Authorization: Bearer $CREDENTIAL" \
+curl -X POST http://localhost:5130/v1/webhooks/rotate-credential \
+  -H "Authorization: Bearer $CURRENT_KEY2" \
   -H "Content-Type: application/json" \
-  -d '{"tenantId":"acme","siteId":"acme-blog"}'
-# → 200 OK   (pepper generated and stored if it didn't exist)
+  -d '{"tenantId":"acme","key1":"<fresh-nonce>"}'
+# → 200 OK   (your callback returned a new key2; the old one stops working)
 ```
 
-That's it — `acme/acme-blog` now has a current-epoch pepper. Use different `(tenantId, siteId)` pairs for
-different sites; they never share a pepper. (In this Local edition, a valid credential is entitled to **any**
-tenant and site — you operate both PepperMill and the servers, so you trust yourself. The Hosted edition swaps
-in per-tenant, per-site subscription checks.)
+### Removing a tenant
 
-To **remove** a site — destroy its pepper (e.g. on cancellation):
+Destroy all of a tenant's peppers and un-enroll it (e.g. on cancellation), authorized by its current `key2`:
 
 ```bash
 curl -X POST http://localhost:5130/v1/webhooks/revoke \
-  -H "Authorization: Bearer $CREDENTIAL" \
+  -H "Authorization: Bearer $CURRENT_KEY2" \
   -H "Content-Type: application/json" \
-  -d '{"tenantId":"acme","siteId":"acme-blog"}'
-# → 200 OK   (pepper file deleted)
+  -d '{"tenantId":"acme"}'
+# → 200 OK   (peppers deleted; tenant can enroll again)
 ```
 
 ---
 
 ## 3. Fetch a pepper
 
-This is the endpoint your TelemetryForge servers call at startup. It returns the site's **current-epoch**
-pepper, creating one on the fly if the site is new.
+This is the endpoint your servers call at startup, with the `key2` from enrollment. A site is identified by a
+`tenantId` **and** a `siteId` you choose; a `siteId` is unique only **within its tenant**, so the same `siteId`
+under two tenants is two isolated peppers. A site's pepper is **created on the fly** the first time it's fetched.
 
 ```bash
-CREDENTIAL="dev-server-credential"   # or your real one
-
 curl -X POST http://localhost:5130/v1/peppers/current \
-  -H "Authorization: Bearer $CREDENTIAL" \
+  -H "Authorization: Bearer $KEY2" \
   -H "Content-Type: application/json" \
   -d '{"tenantId":"acme","siteId":"acme-blog"}'
 ```
@@ -151,7 +168,13 @@ Response:
 }
 ```
 
-**The client contract** (what a well-behaved TelemetryForge server does with this):
+The credential decides the tenant: `key2` is entitled to **every** site under its own tenant, and to no other
+tenant — changing `tenantId` in the body to one the credential wasn't enrolled for returns `403`.
+
+To force a fresh pepper for a site immediately (destroying the current one), call `POST /v1/peppers/rotate`
+with the same body and bearer; it returns the new pepper.
+
+**The client contract** (what a well-behaved server does with a fetched pepper):
 
 - Hold the pepper **in memory only** — never write it to disk, logs, or config.
 - **Re-fetch after `rotatesAtUtc`** to pick up the next epoch's pepper.
@@ -165,8 +188,8 @@ Response:
 |---|---|
 | `200` | pepper returned |
 | `400` | `tenantId` or `siteId` missing from the body |
-| `401` | no/!`Bearer` credential |
-| `403` | credential not entitled (wrong credential in Local mode) — logged as `pepper.fetch.denied` |
+| `401` | no/malformed `Bearer` credential |
+| `403` | credential not valid for this tenant — logged as `pepper.fetch.denied` |
 
 ---
 
@@ -194,8 +217,9 @@ drive from the browser. It's intended for development/testing.
 **To call the authenticated endpoints from Scalar:**
 
 1. Open `/scalar/v1`.
-2. Find the **Authentication** panel and set the bearer token (in dev: `dev-server-credential`).
-3. Open `POST /v1/peppers/current`, set the body to `{ "tenantId": "my-tenant", "siteId": "my-site" }`, and **Send**.
+2. Enroll a tenant first (a fetch needs a `key2`), then find the **Authentication** panel and set the bearer
+   token to that tenant's `key2`.
+3. Open `POST /v1/peppers/current`, set the body to `{ "tenantId": "acme", "siteId": "acme-blog" }`, and **Send**.
 
 > Scalar is a dev convenience. In production, keep it behind your proxy/auth or disable public access — it
 > exposes your API shape, though never any pepper material.
@@ -211,7 +235,6 @@ The repo ships a `Dockerfile` and `docker-compose.yml`. This is the simplest way
 cp .env.example .env
 # edit .env:
 #   PEPPERMILL_STORAGE_KEY=$(head -c 32 /dev/urandom | base64)
-#   PEPPERMILL_CREDENTIAL=$(head -c 32 /dev/urandom | base64)
 
 # 2. Build and start
 docker compose up -d --build
@@ -225,10 +248,10 @@ Details worth knowing:
 
 - The container listens on **8080** internally; compose maps it to **5130** on your host (so the URLs above
   are unchanged). Adjust the `ports:` line to serve elsewhere.
-- The pepper store persists in a named volume (`peppermill-data` → `/data`). It survives
-  `docker compose down` — **back it up** (see below). `down -v` deletes it and all peppers.
-- Compose **won't start without both secrets** (the `:?` guards in the compose file), matching the server's
-  own fail-fast. Secrets come from `.env` / the environment — never bake them into the image.
+- The store persists in a named volume (`peppermill-data` → `/data`) — encrypted peppers, credential records,
+  and `audit.log`. It survives `docker compose down` — **back it up** (see below). `down -v` deletes it.
+- Compose **won't start without the storage key** (the `:?` guard in the compose file), matching the server's
+  own fail-fast. The secret comes from `.env` / the environment — never bake it into the image.
 - The image runs as a **non-root** user and includes a `HEALTHCHECK` that polls `/health`.
 
 To view logs / stop:
@@ -257,8 +280,9 @@ in a secret manager, separate from the store backups.
 
 ### Backups
 
-- Back up `StorePath` — it holds every site's encrypted pepper **and** `audit.log`. It's already encrypted
-  at rest, so a backup is safe to store, but is worthless (by design) without the separately-held master key.
+- Back up `StorePath` — it holds every site's encrypted pepper, the per-tenant credential records, **and**
+  `audit.log`. Peppers are encrypted at rest, so a backup is safe to store but is worthless (by design)
+  without the separately-held master key.
 - In Docker, back up the volume, e.g.:
   ```bash
   docker run --rm -v peppermill-data:/data -v "$PWD":/backup alpine \
@@ -278,16 +302,16 @@ in a secret manager, separate from the store backups.
 
 ### Auditing
 
-Every fetch / provision / revoke appends a JSON line to `StorePath/audit.log` with **metadata only**
-(timestamp, event, site id, epoch) — never pepper material. Ship or rotate this file with your normal log
-tooling; watch for `pepper.fetch.denied` (a credential failing entitlement).
+Every fetch / enroll / revoke / rotate appends a JSON line to `StorePath/audit.log` with **metadata only**
+(timestamp, event, tenant/site id, epoch) — never pepper or credential material. Ship or rotate this file with
+your normal log tooling; watch for `pepper.fetch.denied` (a credential failing entitlement).
 
 ### Deployment checklist
 
 - [ ] `StorageKeyBase64` set (32 bytes) and held in a secret manager, **not** with the store backups.
-- [ ] `LocalServerCredential` set to a long random value and distributed only to your servers.
+- [ ] `CallbackAllowedHosts` set to the exact hosts of your servers' enrollment callbacks.
 - [ ] `StorePath` on **durable** storage, backed up.
-- [ ] TLS terminated in front; PepperMill in a **separate trust domain** from analytics.
+- [ ] PepperMill on a private network in a **separate trust domain** from analytics; HTTPS in front (recommended).
 - [ ] `/health` wired to your liveness probe.
 - [ ] Scalar (`/scalar/v1`) not publicly exposed in production.
 
@@ -301,8 +325,11 @@ tooling; watch for `pepper.fetch.denied` (a credential failing entitlement).
 | **Server won't start; "StorageKeyBase64 … is required outside Development"** | You're in `Production` (or non-Development) with no key. Set `PepperMill__StorageKeyBase64` to base64 of 32 bytes. |
 | **"must decode to exactly 32 bytes"** | Your key isn't 32 bytes. Regenerate: `head -c 32 /dev/urandom \| base64`. |
 | **Startup warns "EPHEMERAL storage key (Development only)"** | You're in Development with no key — peppers won't survive a restart. Fine for dev; set a real key otherwise. |
-| **`403 Not entitled for this site`** | Wrong/missing credential. In dev it's `dev-server-credential`; otherwise match `LocalServerCredential`. |
-| **`401 Missing bearer server credential`** | Add `-H "Authorization: Bearer <credential>"`. |
+| **Enrollment returns `403 callbackUrl is not permitted`** | The callback host isn't allowlisted. Add it to `PepperMill__CallbackAllowedHosts`. |
+| **Enrollment returns `409`** | The tenant is already enrolled. Revoke it first, or use `rotate-credential`. |
+| **Enrollment returns `502`** | PepperMill couldn't reach your callback, or it didn't return `{ "key2": ... }`. Check the callback is up, reachable, and responds correctly. |
+| **`403 Not entitled for this site`** | The `key2` isn't valid for the `tenantId` in the body (wrong credential, or the tenant isn't enrolled). |
+| **`401 Missing bearer credential`** | Add `-H "Authorization: Bearer <key2>"`. |
 | **Peppers vanished after restart** | Development ephemeral key, or (in Docker) the volume was removed (`down -v`). Set a persistent key and keep the volume. |
-| **A site's pepper changed unexpectedly mid-month** | Check for a month boundary (UTC) or a `revoke`+re-provision. On the client side, an unexpected change is a deliberate tripwire signal. |
-| **`docker compose up` errors that `PEPPERMILL_STORAGE_KEY` is unset** | Create `.env` from `.env.example` and fill in both secrets. |
+| **A site's pepper changed unexpectedly mid-month** | Check for a month boundary (UTC), a `revoke`, or a `peppers/rotate`. On the client side, an unexpected change is a deliberate tripwire signal. |
+| **`docker compose up` errors that `PEPPERMILL_STORAGE_KEY` is unset** | Create `.env` from `.env.example` and set the storage key. |

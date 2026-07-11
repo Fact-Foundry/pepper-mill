@@ -14,7 +14,7 @@ public interface IPepperStore
     /// <summary>Stores (and, if one already existed, irreversibly replaces) a site's pepper.</summary>
     Task SaveAsync(StoredPepper pepper, CancellationToken cancellationToken = default);
 
-    /// <summary>Removes a tenant's site pepper entirely (e.g. on subscription revocation).</summary>
+    /// <summary>Removes a tenant's site pepper entirely (e.g. when a tenant is revoked).</summary>
     Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default);
 
     /// <summary>Lists all currently stored peppers — used by the rotation worker.</summary>
