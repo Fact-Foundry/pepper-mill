@@ -1,0 +1,22 @@
+# Build output — rebuilt inside the image
+**/bin/
+**/obj/
+artifacts/
+
+# Custody data & secrets — MUST NOT enter the build context
+peppers/
+peppers-dev/
+**/*.pepper
+**/audit.log
+.env
+appsettings*.local.json
+
+# VCS / IDE / docs noise
+.git/
+.gitignore
+.vs/
+.idea/
+*.user
+docs/
+*.md
+!README.md

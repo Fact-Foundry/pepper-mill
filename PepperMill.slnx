@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FactFoundry.PepperMill/FactFoundry.PepperMill.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FactFoundry.PepperMill.Tests/FactFoundry.PepperMill.Tests.csproj" />
+  </Folder>
+</Solution>

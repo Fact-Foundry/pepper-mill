@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+# IDEs
+.vs/
+.idea/
+*.user
+*.suo
+
+# Test / coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+*.trx
+
+# ── PepperMill custody data — NEVER commit peppers or keys ──
+peppers/
+peppers-dev/
+*.pepper
+audit.log
+# local-only secrets overrides
+appsettings*.local.json
+# container env file — holds the storage key + credential
+.env

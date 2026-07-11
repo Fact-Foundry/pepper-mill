@@ -1,0 +1,30 @@
+# PepperMill — local / self-hosted container stack.
+#
+#   1. cp .env.example .env   &&   edit .env  (set a real key + credential)
+#   2. docker compose up -d --build
+#   3. curl http://localhost:5130/health
+#
+# The two PepperMill__* secrets are REQUIRED — compose refuses to start without
+# them (the `:?` guard below), matching the server's own fail-fast on a missing
+# storage key. Secrets come from the environment / .env, never from this file.
+
+services:
+  peppermill:
+    build: .
+    image: factfoundry/peppermill:local
+    container_name: peppermill
+    restart: unless-stopped
+    ports:
+      # host 5130 → container 8080 (keeps the http://localhost:5130 you're used to)
+      - "5130:8080"
+    environment:
+      PepperMill__EntitlementMode: Local
+      PepperMill__StorageKeyBase64: ${PEPPERMILL_STORAGE_KEY:?set PEPPERMILL_STORAGE_KEY in .env — base64 of 32 random bytes}
+      PepperMill__LocalServerCredential: ${PEPPERMILL_CREDENTIAL:?set PEPPERMILL_CREDENTIAL in .env — a long random string}
+      PepperMill__StorePath: /data/peppers
+    volumes:
+      # Durable, encrypted-at-rest pepper store + audit log. Back this up.
+      - peppermill-data:/data
+
+volumes:
+  peppermill-data:
