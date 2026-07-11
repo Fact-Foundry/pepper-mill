@@ -93,8 +93,10 @@ dotnet FactFoundry.PepperMill.dll
 
 ## 2. Set up a new site
 
-**There is no registration step and no admin UI.** A "site" is just a `siteId` string you choose (e.g.
-`acme-blog`, `shop-eu`). A site comes into existence the first time PepperMill sees its id — either when a
+**There is no registration step and no admin UI.** A site is identified by a `tenantId` **and** a `siteId`
+string you choose (e.g. tenant `acme`, site `acme-blog`). A `siteId` is unique only **within its tenant**, so
+the same `siteId` under two different tenants is two isolated peppers — cross-tenant collisions are impossible.
+A site comes into existence the first time PepperMill sees that `(tenantId, siteId)` pair — either when a
 server **fetches** its pepper, or when you **provision** it explicitly. Each site gets its own isolated,
 independently-rotated pepper, stored in its own encrypted file.
 
@@ -104,14 +106,14 @@ To create a site up front (e.g. right after a customer signs up), call **provisi
 curl -X POST http://localhost:5130/v1/webhooks/provision \
   -H "Authorization: Bearer $CREDENTIAL" \
   -H "Content-Type: application/json" \
-  -d '{"siteId":"acme-blog"}'
+  -d '{"tenantId":"acme","siteId":"acme-blog"}'
 # → 200 OK   (pepper generated and stored if it didn't exist)
 ```
 
-That's it — `acme-blog` now has a current-epoch pepper. Use different `siteId` values for different sites;
-they never share a pepper. (In this Local edition, a valid credential is entitled to **any** `siteId` — you
-operate both PepperMill and the servers, so you trust yourself. The Hosted edition swaps in per-site
-subscription checks.)
+That's it — `acme/acme-blog` now has a current-epoch pepper. Use different `(tenantId, siteId)` pairs for
+different sites; they never share a pepper. (In this Local edition, a valid credential is entitled to **any**
+tenant and site — you operate both PepperMill and the servers, so you trust yourself. The Hosted edition swaps
+in per-tenant, per-site subscription checks.)
 
 To **remove** a site — destroy its pepper (e.g. on cancellation):
 
@@ -119,7 +121,7 @@ To **remove** a site — destroy its pepper (e.g. on cancellation):
 curl -X POST http://localhost:5130/v1/webhooks/revoke \
   -H "Authorization: Bearer $CREDENTIAL" \
   -H "Content-Type: application/json" \
-  -d '{"siteId":"acme-blog"}'
+  -d '{"tenantId":"acme","siteId":"acme-blog"}'
 # → 200 OK   (pepper file deleted)
 ```
 
@@ -136,7 +138,7 @@ CREDENTIAL="dev-server-credential"   # or your real one
 curl -X POST http://localhost:5130/v1/peppers/current \
   -H "Authorization: Bearer $CREDENTIAL" \
   -H "Content-Type: application/json" \
-  -d '{"siteId":"acme-blog"}'
+  -d '{"tenantId":"acme","siteId":"acme-blog"}'
 ```
 
 Response:
@@ -162,7 +164,7 @@ Response:
 | Status | Meaning |
 |---|---|
 | `200` | pepper returned |
-| `400` | `siteId` missing from the body |
+| `400` | `tenantId` or `siteId` missing from the body |
 | `401` | no/!`Bearer` credential |
 | `403` | credential not entitled (wrong credential in Local mode) — logged as `pepper.fetch.denied` |
 
@@ -193,7 +195,7 @@ drive from the browser. It's intended for development/testing.
 
 1. Open `/scalar/v1`.
 2. Find the **Authentication** panel and set the bearer token (in dev: `dev-server-credential`).
-3. Open `POST /v1/peppers/current`, set the body to `{ "siteId": "my-site" }`, and **Send**.
+3. Open `POST /v1/peppers/current`, set the body to `{ "tenantId": "my-tenant", "siteId": "my-site" }`, and **Send**.
 
 > Scalar is a dev convenience. In production, keep it behind your proxy/auth or disable public access — it
 > exposes your API shape, though never any pepper material.

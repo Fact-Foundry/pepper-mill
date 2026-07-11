@@ -13,8 +13,10 @@ public class EncryptedFilePepperStoreTests : IDisposable
     private EncryptedFilePepperStore NewStore(byte[]? key = null) =>
         new(key ?? _key, _dir, NullLogger<EncryptedFilePepperStore>.Instance);
 
-    private static StoredPepper SamplePepper(string siteId = "site-1", string epoch = "2026-07") =>
-        new(siteId, epoch, Convert.ToBase64String(PepperGenerator.Generate()), DateTimeOffset.UtcNow);
+    private const string Tenant = "tenant-1";
+
+    private static StoredPepper SamplePepper(string siteId = "site-1", string epoch = "2026-07", string tenantId = Tenant) =>
+        new(tenantId, siteId, epoch, Convert.ToBase64String(PepperGenerator.Generate()), DateTimeOffset.UtcNow);
 
     [Fact]
     public async Task SaveThenGet_RoundTrips()
@@ -23,7 +25,7 @@ public class EncryptedFilePepperStoreTests : IDisposable
         var pepper = SamplePepper();
         await store.SaveAsync(pepper);
 
-        var loaded = await store.GetAsync("site-1");
+        var loaded = await store.GetAsync(Tenant, "site-1");
 
         Assert.NotNull(loaded);
         Assert.Equal(pepper.PepperBase64, loaded!.PepperBase64);
@@ -33,7 +35,23 @@ public class EncryptedFilePepperStoreTests : IDisposable
     [Fact]
     public async Task Get_UnknownSite_ReturnsNull()
     {
-        Assert.Null(await NewStore().GetAsync("nobody"));
+        Assert.Null(await NewStore().GetAsync(Tenant, "nobody"));
+    }
+
+    [Fact]
+    public async Task SameSiteId_DifferentTenants_AreIsolated()
+    {
+        var store = NewStore();
+        var a = SamplePepper(siteId: "shared", tenantId: "tenant-a");
+        var b = SamplePepper(siteId: "shared", tenantId: "tenant-b");
+        await store.SaveAsync(a);
+        await store.SaveAsync(b);
+
+        // A same-named site under a different tenant is a distinct pepper — no cross-tenant bleed.
+        Assert.Equal(a.PepperBase64, (await store.GetAsync("tenant-a", "shared"))!.PepperBase64);
+        Assert.Equal(b.PepperBase64, (await store.GetAsync("tenant-b", "shared"))!.PepperBase64);
+        Assert.NotEqual(a.PepperBase64, b.PepperBase64);
+        Assert.Equal(2, (await store.ListAsync()).Count);
     }
 
     [Fact]
@@ -45,7 +63,7 @@ public class EncryptedFilePepperStoreTests : IDisposable
         await store.SaveAsync(first);
         await store.SaveAsync(second);
 
-        var loaded = await store.GetAsync("site-1");
+        var loaded = await store.GetAsync(Tenant, "site-1");
 
         Assert.Equal(second.PepperBase64, loaded!.PepperBase64);
         Assert.Equal("2026-08", loaded.Epoch);
@@ -56,9 +74,9 @@ public class EncryptedFilePepperStoreTests : IDisposable
     {
         var store = NewStore();
         await store.SaveAsync(SamplePepper());
-        await store.DeleteAsync("site-1");
+        await store.DeleteAsync(Tenant, "site-1");
 
-        Assert.Null(await store.GetAsync("site-1"));
+        Assert.Null(await store.GetAsync(Tenant, "site-1"));
     }
 
     [Fact]
@@ -85,9 +103,10 @@ public class EncryptedFilePepperStoreTests : IDisposable
         var file = Directory.EnumerateFiles(_dir, "*.pepper").Single();
         var raw = await File.ReadAllBytesAsync(file);
 
-        // The plaintext pepper (and site id) must not appear in the encrypted-at-rest bytes.
+        // The plaintext pepper (and tenant/site ids) must not appear in the encrypted-at-rest bytes.
         Assert.DoesNotContain(pepper.PepperBase64, Encoding.UTF8.GetString(raw));
         Assert.DoesNotContain("site-1", Encoding.UTF8.GetString(raw));
+        Assert.DoesNotContain(Tenant, Encoding.UTF8.GetString(raw));
     }
 
     [Fact]
@@ -97,7 +116,7 @@ public class EncryptedFilePepperStoreTests : IDisposable
 
         var otherKeyStore = NewStore(RandomNumberGenerator.GetBytes(32));
 
-        await Assert.ThrowsAnyAsync<CryptographicException>(() => otherKeyStore.GetAsync("site-1"));
+        await Assert.ThrowsAnyAsync<CryptographicException>(() => otherKeyStore.GetAsync(Tenant, "site-1"));
     }
 
     public void Dispose()

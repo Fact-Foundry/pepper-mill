@@ -23,17 +23,17 @@ public sealed class PepperService
     }
 
     /// <summary>
-    /// Returns the current pepper for a site, generating a fresh one (and destroying any prior
-    /// epoch) when none exists or the stored one has aged out of the current epoch.
+    /// Returns the current pepper for a tenant's site, generating a fresh one (and destroying any
+    /// prior epoch) when none exists or the stored one has aged out of the current epoch.
     /// </summary>
-    public async Task<PepperResult> GetCurrentAsync(string siteId, CancellationToken cancellationToken = default)
+    public async Task<PepperResult> GetCurrentAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
         var epoch = Epoch.Current(_clock.UtcNow);
-        var stored = await _store.GetAsync(siteId, cancellationToken);
+        var stored = await _store.GetAsync(tenantId, siteId, cancellationToken);
 
         if (stored is null || stored.Epoch != epoch.Id)
         {
-            stored = new StoredPepper(siteId, epoch.Id, Convert.ToBase64String(PepperGenerator.Generate()), _clock.UtcNow);
+            stored = new StoredPepper(tenantId, siteId, epoch.Id, Convert.ToBase64String(PepperGenerator.Generate()), _clock.UtcNow);
             await _store.SaveAsync(stored, cancellationToken);
         }
 
@@ -55,7 +55,7 @@ public sealed class PepperService
             if (stored.Epoch == epoch.Id)
                 continue;
 
-            var fresh = new StoredPepper(stored.SiteId, epoch.Id, Convert.ToBase64String(PepperGenerator.Generate()), _clock.UtcNow);
+            var fresh = new StoredPepper(stored.TenantId, stored.SiteId, epoch.Id, Convert.ToBase64String(PepperGenerator.Generate()), _clock.UtcNow);
             await _store.SaveAsync(fresh, cancellationToken);
             rotated++;
         }

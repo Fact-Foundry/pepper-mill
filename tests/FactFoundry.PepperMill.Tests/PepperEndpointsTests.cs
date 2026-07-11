@@ -26,11 +26,13 @@ public class PepperEndpointsTests : IDisposable
 
     private HttpClient Client() => new Factory(_storeDir).CreateClient();
 
-    private static HttpRequestMessage Fetch(string siteId, string? credential)
+    private const string Tenant = "tenant-1";
+
+    private static HttpRequestMessage Fetch(string siteId, string? credential, string? tenantId = Tenant)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/v1/peppers/current")
         {
-            Content = JsonContent.Create(new { siteId }),
+            Content = JsonContent.Create(new { tenantId, siteId }),
         };
         if (credential is not null)
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
@@ -42,6 +44,13 @@ public class PepperEndpointsTests : IDisposable
     {
         var resp = await Client().SendAsync(Fetch("site-1", credential: null));
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Fetch_MissingTenant_Returns400()
+    {
+        var resp = await Client().SendAsync(Fetch("site-1", Credential, tenantId: null));
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
     [Fact]

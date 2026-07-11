@@ -3,8 +3,9 @@ using FactFoundry.PepperMill.Services;
 namespace FactFoundry.PepperMill.Api;
 
 /// <summary>Request for a site's current pepper.</summary>
-/// <param name="SiteId">The site whose pepper is requested.</param>
-public sealed record PepperFetchRequest(string SiteId);
+/// <param name="TenantId">The tenant that owns the site.</param>
+/// <param name="SiteId">The site whose pepper is requested (unique within the tenant).</param>
+public sealed record PepperFetchRequest(string TenantId, string SiteId);
 
 /// <summary>A site's current pepper and rotation metadata.</summary>
 /// <param name="Pepper">The 256-bit pepper, base64-encoded. Hold in memory only; never persist it.</param>
@@ -13,8 +14,9 @@ public sealed record PepperFetchRequest(string SiteId);
 public sealed record PepperFetchResponse(string Pepper, string Epoch, DateTimeOffset RotatesAtUtc);
 
 /// <summary>A platform lifecycle notification for a single site.</summary>
-/// <param name="SiteId">The affected site.</param>
-public sealed record SiteLifecycleRequest(string SiteId);
+/// <param name="TenantId">The tenant that owns the affected site.</param>
+/// <param name="SiteId">The affected site (unique within the tenant).</param>
+public sealed record SiteLifecycleRequest(string TenantId, string SiteId);
 
 /// <summary>Minimal-API endpoints for pepper custody.</summary>
 public static class PepperEndpoints
@@ -45,6 +47,8 @@ public static class PepperEndpoints
         IAuditLog audit,
         IClock clock)
     {
+        if (string.IsNullOrWhiteSpace(request.TenantId))
+            return Results.BadRequest(new { error = "tenantId is required." });
         if (string.IsNullOrWhiteSpace(request.SiteId))
             return Results.BadRequest(new { error = "siteId is required." });
 
@@ -52,14 +56,14 @@ public static class PepperEndpoints
         if (credential is null)
             return Results.Json(new { error = "Missing bearer server credential." }, statusCode: 401);
 
-        if (!await entitlement.IsEntitledAsync(credential, request.SiteId, context.RequestAborted))
+        if (!await entitlement.IsEntitledAsync(credential, request.TenantId, request.SiteId, context.RequestAborted))
         {
-            await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.fetch.denied", request.SiteId), context.RequestAborted);
+            await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.fetch.denied", request.TenantId, request.SiteId), context.RequestAborted);
             return Results.Json(new { error = "Not entitled for this site." }, statusCode: 403);
         }
 
-        var pepper = await peppers.GetCurrentAsync(request.SiteId, context.RequestAborted);
-        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.fetch", request.SiteId, pepper.Epoch), context.RequestAborted);
+        var pepper = await peppers.GetCurrentAsync(request.TenantId, request.SiteId, context.RequestAborted);
+        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.fetch", request.TenantId, request.SiteId, pepper.Epoch), context.RequestAborted);
 
         return Results.Ok(new PepperFetchResponse(pepper.PepperBase64, pepper.Epoch, pepper.RotatesAtUtc));
     }
@@ -75,11 +79,12 @@ public static class PepperEndpoints
         var credential = GetBearerCredential(context);
         if (credential is null)
             return Results.Json(new { error = "Missing bearer server credential." }, statusCode: 401);
-        if (string.IsNullOrWhiteSpace(request.SiteId) || !await entitlement.IsEntitledAsync(credential, request.SiteId, context.RequestAborted))
+        if (string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.SiteId)
+            || !await entitlement.IsEntitledAsync(credential, request.TenantId, request.SiteId, context.RequestAborted))
             return Results.Json(new { error = "Not entitled for this site." }, statusCode: 403);
 
-        await peppers.GetCurrentAsync(request.SiteId, context.RequestAborted); // creates if absent
-        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.provision", request.SiteId), context.RequestAborted);
+        await peppers.GetCurrentAsync(request.TenantId, request.SiteId, context.RequestAborted); // creates if absent
+        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.provision", request.TenantId, request.SiteId), context.RequestAborted);
         return Results.Ok();
     }
 
@@ -94,11 +99,12 @@ public static class PepperEndpoints
         var credential = GetBearerCredential(context);
         if (credential is null)
             return Results.Json(new { error = "Missing bearer server credential." }, statusCode: 401);
-        if (string.IsNullOrWhiteSpace(request.SiteId) || !await entitlement.IsEntitledAsync(credential, request.SiteId, context.RequestAborted))
+        if (string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.SiteId)
+            || !await entitlement.IsEntitledAsync(credential, request.TenantId, request.SiteId, context.RequestAborted))
             return Results.Json(new { error = "Not entitled for this site." }, statusCode: 403);
 
-        await store.DeleteAsync(request.SiteId, context.RequestAborted);
-        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.revoke", request.SiteId), context.RequestAborted);
+        await store.DeleteAsync(request.TenantId, request.SiteId, context.RequestAborted);
+        await audit.RecordAsync(new AuditEntry(clock.UtcNow, "pepper.revoke", request.TenantId, request.SiteId), context.RequestAborted);
         return Results.Ok();
     }
 

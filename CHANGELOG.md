@@ -4,9 +4,10 @@
 
 ### Features
 
+- Multi-tenant peppers — a pepper is now keyed by the composite `(tenantId, siteId)`; a `siteId` is unique only within its tenant, so same-named sites across tenants are fully isolated. `tenantId` is now required on `POST /v1/peppers/current` and the provision/revoke webhooks, carried through the store (composite file-name hash), entitlement checks, and audit records
 - Initial PepperMill service — the key-custody server from the spec: generate → store → serve → rotate → destroy per-site peppers
 - `POST /v1/peppers/current` — returns a site's current-epoch pepper, gated by a bearer server credential and an entitlement check
-- Encrypted-at-rest pepper store (`EncryptedFilePepperStore`, AES-256-GCM, one file per site named by a hash of the site id; master key held outside the store)
+- Encrypted-at-rest pepper store (`EncryptedFilePepperStore`, AES-256-GCM, one file per site named by a hash of the `(tenantId, siteId)` pair; master key held outside the store)
 - Monthly epoch rotation — inherent in a fetch (a stale pepper is regenerated, destroying the prior value) plus an hourly background sweep so destruction happens on schedule even without a fetch
 - Pluggable `IEntitlementProvider` — `Local` (shared server credential, OSS edition) and `Platform` (delegates to `fact-foundry-platform`, stubbed pending integration)
 - Audit log of fetch / provision / revoke events (metadata only — never pepper material)

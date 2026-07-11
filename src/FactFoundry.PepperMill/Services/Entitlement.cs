@@ -11,13 +11,13 @@ namespace FactFoundry.PepperMill.Services;
 /// </summary>
 public interface IEntitlementProvider
 {
-    /// <summary>Whether the credential is valid and entitled to the given site.</summary>
-    Task<bool> IsEntitledAsync(string credential, string siteId, CancellationToken cancellationToken = default);
+    /// <summary>Whether the credential is valid and entitled to the given tenant's site.</summary>
+    Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// OSS-edition entitlement: a single shared server credential from configuration. A valid
-/// credential is entitled to any site (the operator runs both PepperMill and the servers).
+/// credential is entitled to any tenant's site (the operator runs both PepperMill and the servers).
 /// </summary>
 public sealed class LocalEntitlementProvider : IEntitlementProvider
 {
@@ -30,7 +30,7 @@ public sealed class LocalEntitlementProvider : IEntitlementProvider
     }
 
     /// <inheritdoc />
-    public Task<bool> IsEntitledAsync(string credential, string siteId, CancellationToken cancellationToken = default)
+    public Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(_configuredCredential) || string.IsNullOrEmpty(credential))
             return Task.FromResult(false);
@@ -58,11 +58,11 @@ public sealed class PlatformEntitlementProvider : IEntitlementProvider
     }
 
     /// <inheritdoc />
-    public Task<bool> IsEntitledAsync(string credential, string siteId, CancellationToken cancellationToken = default)
+    public Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
         _logger.LogWarning(
-            "Platform entitlement mode is configured but not yet implemented; denying request for site {SiteId}.",
-            siteId);
+            "Platform entitlement mode is configured but not yet implemented; denying request for tenant {TenantId} site {SiteId}.",
+            tenantId, siteId);
         return Task.FromResult(false);
     }
 }

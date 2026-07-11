@@ -14,7 +14,7 @@ public class LocalEntitlementProviderTests
     {
         var provider = Provider("s3cret-server-credential");
 
-        Assert.True(await provider.IsEntitledAsync("s3cret-server-credential", "any-site"));
+        Assert.True(await provider.IsEntitledAsync("s3cret-server-credential", "any-tenant", "any-site"));
     }
 
     [Fact]
@@ -22,7 +22,7 @@ public class LocalEntitlementProviderTests
     {
         var provider = Provider("s3cret-server-credential");
 
-        Assert.False(await provider.IsEntitledAsync("guessing", "any-site"));
+        Assert.False(await provider.IsEntitledAsync("guessing", "any-tenant", "any-site"));
     }
 
     [Theory]
@@ -32,6 +32,6 @@ public class LocalEntitlementProviderTests
     {
         var provider = Provider(configured);
 
-        Assert.False(await provider.IsEntitledAsync("anything", "any-site"));
+        Assert.False(await provider.IsEntitledAsync("anything", "any-tenant", "any-site"));
     }
 }

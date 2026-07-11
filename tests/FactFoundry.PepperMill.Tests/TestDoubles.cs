@@ -11,20 +11,20 @@ internal sealed class TestClock(DateTimeOffset now) : IClock
 /// <summary>An in-memory <see cref="IPepperStore"/> for fast service-level tests.</summary>
 internal sealed class InMemoryPepperStore : IPepperStore
 {
-    private readonly Dictionary<string, StoredPepper> _peppers = new();
+    private readonly Dictionary<(string TenantId, string SiteId), StoredPepper> _peppers = new();
 
-    public Task<StoredPepper?> GetAsync(string siteId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_peppers.GetValueOrDefault(siteId));
+    public Task<StoredPepper?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_peppers.GetValueOrDefault((tenantId, siteId)));
 
     public Task SaveAsync(StoredPepper pepper, CancellationToken cancellationToken = default)
     {
-        _peppers[pepper.SiteId] = pepper;
+        _peppers[(pepper.TenantId, pepper.SiteId)] = pepper;
         return Task.CompletedTask;
     }
 
-    public Task DeleteAsync(string siteId, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        _peppers.Remove(siteId);
+        _peppers.Remove((tenantId, siteId));
         return Task.CompletedTask;
     }
 

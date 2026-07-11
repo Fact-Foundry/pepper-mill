@@ -50,7 +50,7 @@ Fetch a pepper:
 curl -X POST http://localhost:<port>/v1/peppers/current \
   -H "Authorization: Bearer dev-server-credential" \
   -H "Content-Type: application/json" \
-  -d '{"siteId":"my-site"}'
+  -d '{"tenantId":"my-tenant","siteId":"my-site"}'
 # → { "pepper": "<base64>", "epoch": "2026-07", "rotatesAtUtc": "2026-08-01T00:00:00+00:00" }
 ```
 

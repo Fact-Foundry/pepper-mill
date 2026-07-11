@@ -6,9 +6,9 @@ namespace FactFoundry.PepperMill.Services;
 
 /// <summary>
 /// A file-backed <see cref="IPepperStore"/> that encrypts each site's pepper at rest with
-/// AES-256-GCM under a master key held outside the store. One file per site (named by a hash of
-/// the site id, so the id never appears in a path); the file holds <c>nonce ‖ tag ‖ ciphertext</c>.
-/// A copy of the files alone is useless without the master key.
+/// AES-256-GCM under a master key held outside the store. One file per (tenant, site) pair (named
+/// by a hash of the composite id, so neither id ever appears in a path); the file holds
+/// <c>nonce ‖ tag ‖ ciphertext</c>. A copy of the files alone is useless without the master key.
 /// </summary>
 public sealed class EncryptedFilePepperStore : IPepperStore
 {
@@ -38,9 +38,9 @@ public sealed class EncryptedFilePepperStore : IPepperStore
     }
 
     /// <inheritdoc />
-    public async Task<StoredPepper?> GetAsync(string siteId, CancellationToken cancellationToken = default)
+    public async Task<StoredPepper?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(siteId);
+        var path = PathFor(tenantId, siteId);
         if (!File.Exists(path))
             return null;
 
@@ -59,7 +59,7 @@ public sealed class EncryptedFilePepperStore : IPepperStore
     /// <inheritdoc />
     public async Task SaveAsync(StoredPepper pepper, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(pepper.SiteId);
+        var path = PathFor(pepper.TenantId, pepper.SiteId);
         var payload = Encrypt(pepper);
 
         await _gate.WaitAsync(cancellationToken);
@@ -76,9 +76,9 @@ public sealed class EncryptedFilePepperStore : IPepperStore
     }
 
     /// <inheritdoc />
-    public async Task DeleteAsync(string siteId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(siteId);
+        var path = PathFor(tenantId, siteId);
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -110,9 +110,12 @@ public sealed class EncryptedFilePepperStore : IPepperStore
         return result;
     }
 
-    private string PathFor(string siteId)
+    private string PathFor(string tenantId, string siteId)
     {
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(siteId)));
+        // Length-prefix each component so distinct (tenant, site) pairs can never collide onto the
+        // same file (e.g. "ab"/"c" vs "a"/"bc"). Neither id appears in the path — only the hash.
+        var composite = $"{tenantId.Length}:{tenantId}:{siteId.Length}:{siteId}";
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(composite)));
         return Path.Combine(_directory, hash + ".pepper");
     }
 
