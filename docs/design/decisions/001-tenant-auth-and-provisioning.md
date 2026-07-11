@@ -1,7 +1,7 @@
 # ADR-001: Tenant Authentication & Pepper Provisioning
 
 **Date:** 2026-07-11
-**Status:** Proposed
+**Status:** Accepted
 
 > **Scope.** This ADR is the source of truth for PepperMill's custody contract — how peppers are keyed, the provisioning/authentication protocol, and each side's responsibilities. It is written so a developer implementing the client (the calling TelemetryForge server) side can build their half against it directly. It covers *direction* only, not which side mints a given secret — the client generates `key2` (see decision 3).
 
