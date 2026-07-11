@@ -7,9 +7,9 @@ namespace FactFoundry.PepperMill.Services;
 /// <param name="Timestamp">When it happened (UTC).</param>
 /// <param name="Event">Event kind, e.g. "pepper.fetch", "pepper.revoke".</param>
 /// <param name="TenantId">The tenant involved.</param>
-/// <param name="SiteId">The site involved (unique within the tenant).</param>
+/// <param name="SiteId">The site involved (unique within the tenant), or null for tenant-level events (enroll/revoke).</param>
 /// <param name="Detail">Optional free-text context (never a secret).</param>
-public sealed record AuditEntry(DateTimeOffset Timestamp, string Event, string TenantId, string SiteId, string? Detail = null);
+public sealed record AuditEntry(DateTimeOffset Timestamp, string Event, string TenantId, string? SiteId = null, string? Detail = null);
 
 /// <summary>Appends audit records. Hosted edition would delegate to the platform's audit log.</summary>
 public interface IAuditLog

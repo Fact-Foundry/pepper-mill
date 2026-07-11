@@ -1,13 +1,9 @@
-using System.Security.Cryptography;
-using System.Text;
-using Microsoft.Extensions.Options;
-
 namespace FactFoundry.PepperMill.Services;
 
 /// <summary>
 /// Decides whether a presented server credential is entitled to a site's pepper. The custody of
-/// peppers is PepperMill's job; <em>who is allowed</em> is delegated here — locally in the OSS
-/// edition, or to fact-foundry-platform in the hosted edition.
+/// peppers is PepperMill's job; <em>who is allowed</em> is delegated here — locally against the
+/// enrolled tenant credentials, or to an external Platform provider.
 /// </summary>
 public interface IEntitlementProvider
 {
@@ -16,29 +12,33 @@ public interface IEntitlementProvider
 }
 
 /// <summary>
-/// OSS-edition entitlement: a single shared server credential from configuration. A valid
-/// credential is entitled to any tenant's site (the operator runs both PepperMill and the servers).
+/// Local entitlement: resolves the presented credential against the enrolled tenant's stored hash.
+/// A credential is entitled to <em>any</em> site under the tenant it was enrolled for, and to no
+/// other tenant — so a caller cannot reach another tenant's pepper by changing the request body.
 /// </summary>
 public sealed class LocalEntitlementProvider : IEntitlementProvider
 {
-    private readonly string? _configuredCredential;
+    private readonly ICredentialStore _credentials;
 
-    /// <summary>Creates the provider from options.</summary>
-    public LocalEntitlementProvider(IOptions<PepperMillOptions> options)
+    /// <summary>Creates the provider over the credential store.</summary>
+    public LocalEntitlementProvider(ICredentialStore credentials)
     {
-        _configuredCredential = options.Value.LocalServerCredential;
+        _credentials = credentials;
     }
 
     /// <inheritdoc />
-    public Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default)
+    public async Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(_configuredCredential) || string.IsNullOrEmpty(credential))
-            return Task.FromResult(false);
+        if (string.IsNullOrEmpty(credential) || string.IsNullOrWhiteSpace(tenantId))
+            return false;
 
-        // Compare fixed-length hashes so the check is constant-time regardless of input length.
-        var presented = SHA256.HashData(Encoding.UTF8.GetBytes(credential));
-        var expected = SHA256.HashData(Encoding.UTF8.GetBytes(_configuredCredential));
-        return Task.FromResult(CryptographicOperations.FixedTimeEquals(presented, expected));
+        var record = await _credentials.GetAsync(tenantId, cancellationToken);
+        if (record is null)
+            return false;
+
+        // The credential must hash to this tenant's stored hash. (siteId is not an entitlement
+        // boundary — a tenant credential is good for every site under that tenant.)
+        return CredentialHasher.Verify(credential, record.Key2Hash);
     }
 }
 

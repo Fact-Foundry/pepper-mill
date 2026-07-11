@@ -21,11 +21,13 @@ public sealed class PepperMillOptions
     public string? StorageKeyBase64 { get; set; }
 
     /// <summary>
-    /// The shared server credential accepted in <c>Local</c> mode. A TelemetryForge server presents
-    /// it as a bearer token. Required in Local mode.
+    /// Hostnames PepperMill is permitted to call back to during tenant enrollment. The enrollment
+    /// handshake makes an outbound request to the client-supplied <c>callbackUrl</c>; only URLs whose
+    /// host appears here are contacted, so the endpoint cannot be abused as an SSRF primitive. Empty
+    /// means no callback is allowed (enrollment is refused until the operator configures this).
     /// </summary>
-    public string? LocalServerCredential { get; set; }
+    public List<string> CallbackAllowedHosts { get; set; } = [];
 
-    /// <summary>Directory holding the encrypted per-site pepper files.</summary>
+    /// <summary>Directory holding the encrypted per-site pepper files and per-tenant credential records.</summary>
     public string StorePath { get; set; } = "peppers";
 }

@@ -31,3 +31,24 @@ internal sealed class InMemoryPepperStore : IPepperStore
     public Task<IReadOnlyList<StoredPepper>> ListAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<StoredPepper>>(_peppers.Values.ToList());
 }
+
+/// <summary>An in-memory <see cref="ICredentialStore"/> for fast entitlement tests.</summary>
+internal sealed class InMemoryCredentialStore : ICredentialStore
+{
+    private readonly Dictionary<string, TenantCredential> _creds = new();
+
+    public Task<TenantCredential?> GetAsync(string tenantId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_creds.GetValueOrDefault(tenantId));
+
+    public Task SaveAsync(TenantCredential credential, CancellationToken cancellationToken = default)
+    {
+        _creds[credential.TenantId] = credential;
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteAsync(string tenantId, CancellationToken cancellationToken = default)
+    {
+        _creds.Remove(tenantId);
+        return Task.CompletedTask;
+    }
+}

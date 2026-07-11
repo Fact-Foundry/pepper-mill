@@ -22,7 +22,13 @@ builder.Services.AddSingleton<IPepperStore>(sp => new EncryptedFilePepperStore(
 builder.Services.AddSingleton<PepperService>();
 builder.Services.AddSingleton<IAuditLog, FileAuditLog>();
 
-// Entitlement provider by mode: Local (OSS) or Platform (hosted, fact-foundry-platform).
+// Per-tenant credential records (established at enrollment; hashes only).
+builder.Services.AddSingleton<ICredentialStore, FileCredentialStore>();
+
+// Outbound client for the enrollment callback handshake.
+builder.Services.AddHttpClient<ICallbackClient, HttpCallbackClient>();
+
+// Entitlement provider by mode: Local (enrolled credentials) or Platform (external delegation).
 if (string.Equals(options.EntitlementMode, "Platform", StringComparison.OrdinalIgnoreCase))
     builder.Services.AddSingleton<IEntitlementProvider, PlatformEntitlementProvider>();
 else
