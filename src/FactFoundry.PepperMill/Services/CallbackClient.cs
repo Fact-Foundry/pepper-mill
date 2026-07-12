@@ -3,8 +3,8 @@ using System.Net.Http.Json;
 namespace FactFoundry.PepperMill.Services;
 
 /// <summary>
-/// Performs the enrollment callback: PepperMill calls the client's <c>callbackUrl</c> with the
-/// enrollment challenge and receives the credential (<c>key2</c>) the client issues for the tenant.
+/// Performs the registration callback: PepperMill calls the client's <c>callbackUrl</c> with the
+/// registration challenge and receives the credential (<c>key2</c>) the client issues for the site.
 /// </summary>
 public interface ICallbackClient
 {
@@ -36,14 +36,14 @@ public sealed class HttpCallbackClient : ICallbackClient
             using var response = await _http.PostAsJsonAsync(callbackUrl, new { tenantId, key1 }, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Enrollment callback for tenant {TenantId} returned HTTP {Status}.", tenantId, (int)response.StatusCode);
+                _logger.LogWarning("Registration callback for tenant {TenantId} returned HTTP {Status}.", tenantId, (int)response.StatusCode);
                 return null;
             }
 
             var body = await response.Content.ReadFromJsonAsync<CallbackResponse>(cancellationToken);
             if (string.IsNullOrEmpty(body?.Key2))
             {
-                _logger.LogWarning("Enrollment callback for tenant {TenantId} returned no key2.", tenantId);
+                _logger.LogWarning("Registration callback for tenant {TenantId} returned no key2.", tenantId);
                 return null;
             }
 
@@ -52,7 +52,7 @@ public sealed class HttpCallbackClient : ICallbackClient
         catch (Exception ex)
         {
             // Never let a callback failure surface the URL/exception detail to the caller; log and deny.
-            _logger.LogError(ex, "Enrollment callback for tenant {TenantId} failed.", tenantId);
+            _logger.LogError(ex, "Registration callback for tenant {TenantId} failed.", tenantId);
             return null;
         }
     }

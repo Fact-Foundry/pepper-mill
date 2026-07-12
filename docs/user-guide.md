@@ -1,7 +1,7 @@
 # PepperMill — User Guide
 
 A step-by-step walkthrough for running and operating PepperMill (with the Local entitlement mode):
-set up the server, enroll tenants, fetch peppers, and keep it healthy.
+set up the server, register sites, fetch peppers, and keep it healthy.
 
 This guide is task-oriented. For the reference tables (every config key, the client contract, the
 security rationale) see [`operations.md`](operations.md); for the design rationale see
@@ -16,7 +16,7 @@ security rationale) see [`operations.md`](operations.md); for the design rationa
 ## Contents
 
 1. [Set up the server](#1-set-up-the-server)
-2. [Enroll a tenant](#2-enroll-a-tenant)
+2. [Register a site](#2-register-a-site)
 3. [Fetch a pepper](#3-fetch-a-pepper)
 4. [Check server health](#4-check-server-health)
 5. [Run the Scalar UI for testing](#5-run-the-scalar-ui-for-testing)
@@ -32,7 +32,7 @@ security rationale) see [`operations.md`](operations.md); for the design rationa
 
 - **.NET 10 SDK** (to build/run from source) — or **Docker** (see [§6](#6-run-it-as-a-container), the easiest path).
 - One secret to keep out of source control: the **storage key** (the master key that encrypts peppers at rest).
-  Tenant credentials are **not** configured here — each tenant establishes its own during [enrollment](#2-enroll-a-tenant).
+  Site credentials are **not** configured here — each site establishes its own during [registration](#2-register-a-site).
 
 ### Option A — run from source (development)
 
@@ -45,7 +45,7 @@ In `Development` everything needed is preconfigured:
 
 - the storage key is **ephemeral** — a fresh one is generated each start, so **peppers do not survive a
   restart**. That is intentional for dev; a warning is logged at startup.
-- `localhost` and `127.0.0.1` are **allowlisted as callback hosts**, so you can run a local enrollment
+- `localhost` and `127.0.0.1` are **allowlisted as callback hosts**, so you can run a local registration
   callback without extra config.
 
 The console prints the URL (default **`http://localhost:5130`**). Note that `/` returns **404 by design** —
@@ -77,7 +77,7 @@ dotnet FactFoundry.PepperMill.dll
 | Setting | Meaning | Required |
 |---|---|---|
 | `PepperMill__StorageKeyBase64` | base64 of a **32-byte** AES-256 key that encrypts peppers at rest | **yes (outside Development)** |
-| `PepperMill__CallbackAllowedHosts__N` | hostnames PepperMill may call back to during enrollment (SSRF guard); empty ⇒ enrollment refused | **yes (to enroll)** |
+| `PepperMill__CallbackAllowedHosts__N` | hostnames PepperMill may call back to during registration (SSRF guard); empty ⇒ registration refused | **yes (to register)** |
 | `PepperMill__StorePath` | directory for the encrypted pepper files, credential records, and `audit.log` | no — default `peppers` |
 | `PepperMill__EntitlementMode` | `Local` (this guide) or `Platform` (external delegation, not implemented) | no — default `Local` |
 
@@ -88,68 +88,73 @@ dotnet FactFoundry.PepperMill.dll
 
 ---
 
-## 2. Enroll a tenant
+## 2. Register a site
 
-Before a server can fetch peppers, its **tenant** enrolls once to establish a bearer credential (`key2`).
-Enrollment is a **server-to-server handshake**, not a manual step — but here's exactly what happens so you can
-implement the client side.
+Before a server can fetch a site's pepper, that **site** is registered once — which creates its pepper and
+establishes its own bearer credential (`key2`). Registration is a **server-to-server handshake**, not a manual
+step — but here's exactly what happens so you can implement the client side. (In TelemetryForge this is the
+"create pepper" option at site setup.)
 
 **The handshake:**
 
 1. Your server exposes a **callback endpoint** that, given `{ tenantId, key1 }`, verifies `key1` against the
    request it just initiated and responds `{ "key2": "<a strong random secret it generates and stores>" }`.
-2. Your server triggers enrollment:
+2. Your server triggers registration for the site:
 
    ```bash
    curl -X POST http://localhost:5130/v1/webhooks/provision \
      -H "Content-Type: application/json" \
-     -d '{"tenantId":"acme","callbackUrl":"https://tf-server-1.internal/pepper-callback","key1":"<fresh-nonce>"}'
-   # → 200 OK   (PepperMill called your callbackUrl, received key2, and stored only its hash)
+     -d '{"tenantId":"acme","siteId":"acme-blog","callbackUrl":"https://tf-server-1.internal/pepper-callback","key1":"<fresh-nonce>"}'
+   # → 200 OK   (PepperMill called your callbackUrl, got key2, stored only its hash, and created the pepper)
    ```
 
-3. PepperMill calls your `callbackUrl` with `{ tenantId, key1 }`, receives `key2`, and stores **only a hash**
-   of it, **locked** to that tenant. Your server keeps `key2` (in its environment) for every future fetch.
+3. PepperMill calls your `callbackUrl` with `{ tenantId, key1 }`, receives `key2`, stores **only a hash** of it
+   **locked** to that `(tenant, site)`, and creates the site's pepper. Your server keeps `key2` (in its
+   environment) for every future fetch of that site.
 
 Notes:
 
-- **`callbackUrl`'s host must be allowlisted** (`CallbackAllowedHosts`), or enrollment is refused with `403`
+- **Each site has its own `key2`.** Register each site separately; a leaked credential is then scoped to a
+  single site, not the whole tenant.
+- **`callbackUrl`'s host must be allowlisted** (`CallbackAllowedHosts`), or registration is refused with `403`
   before any outbound call — this is the SSRF guard.
-- **Enrollment is one-shot.** A second `provision` for an already-enrolled tenant returns `409`. To re-enroll
-  (rebuild, lost key), [revoke](#removing-a-tenant) the tenant first, or rotate the credential (below).
+- **Registration is one-shot.** A second `provision` for an already-registered site returns `409`. To
+  re-register (rebuild, lost key), [revoke](#removing-a-site) the site first, or rotate its credential (below).
 - **The client, not PepperMill, generates `key2`** — so its strength is on you; use a 256-bit CSPRNG value.
 
-### Rotating a tenant's credential
+### Rotating a site's credential
 
-To issue a fresh `key2` without un-enrolling — PepperMill calls back to the **URL pinned at enrollment** (never
-a request-supplied one), authorized by the current `key2`:
+To issue a fresh `key2` without un-registering — PepperMill calls back to the **URL pinned at registration**
+(never a request-supplied one), authorized by the site's current `key2`:
 
 ```bash
 curl -X POST http://localhost:5130/v1/webhooks/rotate-credential \
   -H "Authorization: Bearer $CURRENT_KEY2" \
   -H "Content-Type: application/json" \
-  -d '{"tenantId":"acme","key1":"<fresh-nonce>"}'
+  -d '{"tenantId":"acme","siteId":"acme-blog","key1":"<fresh-nonce>"}'
 # → 200 OK   (your callback returned a new key2; the old one stops working)
 ```
 
-### Removing a tenant
+### Removing a site
 
-Destroy all of a tenant's peppers and un-enroll it (e.g. on cancellation), authorized by its current `key2`:
+Destroy a site's pepper and un-register it (e.g. on cancellation), authorized by its current `key2`:
 
 ```bash
 curl -X POST http://localhost:5130/v1/webhooks/revoke \
   -H "Authorization: Bearer $CURRENT_KEY2" \
   -H "Content-Type: application/json" \
-  -d '{"tenantId":"acme"}'
-# → 200 OK   (peppers deleted; tenant can enroll again)
+  -d '{"tenantId":"acme","siteId":"acme-blog"}'
+# → 200 OK   (pepper deleted; site can register again)
 ```
 
 ---
 
 ## 3. Fetch a pepper
 
-This is the endpoint your servers call at startup, with the `key2` from enrollment. A site is identified by a
-`tenantId` **and** a `siteId` you choose; a `siteId` is unique only **within its tenant**, so the same `siteId`
-under two tenants is two isolated peppers. A site's pepper is **created on the fly** the first time it's fetched.
+This is the endpoint your servers call at startup, with the site's `key2` from registration. A site is
+identified by a `tenantId` **and** a `siteId`; a `siteId` is unique only **within its tenant**, so the same
+`siteId` under two tenants is two isolated peppers. The site must be **registered first**
+([§2](#2-register-a-site)) — a fetch for an unregistered site returns `403`.
 
 ```bash
 curl -X POST http://localhost:5130/v1/peppers/current \
@@ -168,8 +173,9 @@ Response:
 }
 ```
 
-The credential decides the tenant: `key2` is entitled to **every** site under its own tenant, and to no other
-tenant — changing `tenantId` in the body to one the credential wasn't enrolled for returns `403`.
+The credential is scoped to one site: `key2` is valid only for the exact `(tenantId, siteId)` it was registered
+for — changing either to something it wasn't registered for returns `403`. So a leaked `key2` exposes a single
+site's pepper, nothing more.
 
 To force a fresh pepper for a site immediately (destroying the current one), call `POST /v1/peppers/rotate`
 with the same body and bearer; it returns the new pepper.
@@ -217,8 +223,8 @@ drive from the browser. It's intended for development/testing.
 **To call the authenticated endpoints from Scalar:**
 
 1. Open `/scalar/v1`.
-2. Enroll a tenant first (a fetch needs a `key2`), then find the **Authentication** panel and set the bearer
-   token to that tenant's `key2`.
+2. Register a site first (a fetch needs a `key2`), then find the **Authentication** panel and set the bearer
+   token to that site's `key2`.
 3. Open `POST /v1/peppers/current`, set the body to `{ "tenantId": "acme", "siteId": "acme-blog" }`, and **Send**.
 
 > Scalar is a dev convenience. In production, keep it behind your proxy/auth or disable public access — it
@@ -280,7 +286,7 @@ in a secret manager, separate from the store backups.
 
 ### Backups
 
-- Back up `StorePath` — it holds every site's encrypted pepper, the per-tenant credential records, **and**
+- Back up `StorePath` — it holds every site's encrypted pepper, the per-site credential records, **and**
   `audit.log`. Peppers are encrypted at rest, so a backup is safe to store but is worthless (by design)
   without the separately-held master key.
 - In Docker, back up the volume, e.g.:
@@ -302,14 +308,14 @@ in a secret manager, separate from the store backups.
 
 ### Auditing
 
-Every fetch / enroll / revoke / rotate appends a JSON line to `StorePath/audit.log` with **metadata only**
+Every fetch / register / revoke / rotate appends a JSON line to `StorePath/audit.log` with **metadata only**
 (timestamp, event, tenant/site id, epoch) — never pepper or credential material. Ship or rotate this file with
 your normal log tooling; watch for `pepper.fetch.denied` (a credential failing entitlement).
 
 ### Deployment checklist
 
 - [ ] `StorageKeyBase64` set (32 bytes) and held in a secret manager, **not** with the store backups.
-- [ ] `CallbackAllowedHosts` set to the exact hosts of your servers' enrollment callbacks.
+- [ ] `CallbackAllowedHosts` set to the exact hosts of your servers' registration callbacks.
 - [ ] `StorePath` on **durable** storage, backed up.
 - [ ] PepperMill on a private network in a **separate trust domain** from analytics; HTTPS in front (recommended).
 - [ ] `/health` wired to your liveness probe.
@@ -325,10 +331,10 @@ your normal log tooling; watch for `pepper.fetch.denied` (a credential failing e
 | **Server won't start; "StorageKeyBase64 … is required outside Development"** | You're in `Production` (or non-Development) with no key. Set `PepperMill__StorageKeyBase64` to base64 of 32 bytes. |
 | **"must decode to exactly 32 bytes"** | Your key isn't 32 bytes. Regenerate: `head -c 32 /dev/urandom \| base64`. |
 | **Startup warns "EPHEMERAL storage key (Development only)"** | You're in Development with no key — peppers won't survive a restart. Fine for dev; set a real key otherwise. |
-| **Enrollment returns `403 callbackUrl is not permitted`** | The callback host isn't allowlisted. Add it to `PepperMill__CallbackAllowedHosts`. |
-| **Enrollment returns `409`** | The tenant is already enrolled. Revoke it first, or use `rotate-credential`. |
-| **Enrollment returns `502`** | PepperMill couldn't reach your callback, or it didn't return `{ "key2": ... }`. Check the callback is up, reachable, and responds correctly. |
-| **`403 Not entitled for this site`** | The `key2` isn't valid for the `tenantId` in the body (wrong credential, or the tenant isn't enrolled). |
+| **Registration returns `403 callbackUrl is not permitted`** | The callback host isn't allowlisted. Add it to `PepperMill__CallbackAllowedHosts`. |
+| **Registration returns `409`** | The site is already registered. Revoke it first, or use `rotate-credential`. |
+| **Registration returns `502`** | PepperMill couldn't reach your callback, or it didn't return `{ "key2": ... }`. Check the callback is up, reachable, and responds correctly. |
+| **`403 Not entitled for this site`** | The `key2` isn't valid for this `(tenantId, siteId)` (wrong credential, or the site isn't registered). |
 | **`401 Missing bearer credential`** | Add `-H "Authorization: Bearer <key2>"`. |
 | **Peppers vanished after restart** | Development ephemeral key, or (in Docker) the volume was removed (`down -v`). Set a persistent key and keep the volume. |
 | **A site's pepper changed unexpectedly mid-month** | Check for a month boundary (UTC), a `revoke`, or a `peppers/rotate`. On the client side, an unexpected change is a deliberate tripwire signal. |

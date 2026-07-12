@@ -1,18 +1,18 @@
 namespace FactFoundry.PepperMill.Services;
 
 /// <summary>
-/// Persists per-tenant authentication records (<see cref="TenantCredential"/>). Holds only credential
+/// Persists per-site authentication records (<see cref="SiteCredential"/>). Holds only credential
 /// hashes and non-secret provisioning metadata — never raw credentials or peppers. One record per
-/// tenant, keyed by tenant id.
+/// site, keyed by the composite <c>(tenantId, siteId)</c>.
 /// </summary>
 public interface ICredentialStore
 {
-    /// <summary>Returns the credential record for a tenant, or null if the tenant is not enrolled.</summary>
-    Task<TenantCredential?> GetAsync(string tenantId, CancellationToken cancellationToken = default);
+    /// <summary>Returns the credential record for a site, or null if the site is not registered.</summary>
+    Task<SiteCredential?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default);
 
-    /// <summary>Stores (creating or replacing) a tenant's credential record.</summary>
-    Task SaveAsync(TenantCredential credential, CancellationToken cancellationToken = default);
+    /// <summary>Stores (creating or replacing) a site's credential record.</summary>
+    Task SaveAsync(SiteCredential credential, CancellationToken cancellationToken = default);
 
-    /// <summary>Removes a tenant's credential record entirely (e.g. to allow re-enrollment after a reset).</summary>
-    Task DeleteAsync(string tenantId, CancellationToken cancellationToken = default);
+    /// <summary>Removes a site's credential record entirely (e.g. to allow re-registration after a reset).</summary>
+    Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default);
 }

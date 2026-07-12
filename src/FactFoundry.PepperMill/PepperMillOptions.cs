@@ -9,8 +9,8 @@ public sealed class PepperMillOptions
     public const string SectionName = "PepperMill";
 
     /// <summary>
-    /// How requests are authorized: <c>Local</c> (resolve the presented credential against the enrolled
-    /// tenant records) or <c>Platform</c> (delegate entitlement to an external provider — not implemented).
+    /// How requests are authorized: <c>Local</c> (resolve the presented credential against the registered
+    /// site records) or <c>Platform</c> (delegate entitlement to an external provider — not implemented).
     /// </summary>
     public string EntitlementMode { get; set; } = "Local";
 
@@ -21,13 +21,13 @@ public sealed class PepperMillOptions
     public string? StorageKeyBase64 { get; set; }
 
     /// <summary>
-    /// Hostnames PepperMill is permitted to call back to during tenant enrollment. The enrollment
+    /// Hostnames PepperMill is permitted to call back to during site registration. The registration
     /// handshake makes an outbound request to the client-supplied <c>callbackUrl</c>; only URLs whose
     /// host appears here are contacted, so the endpoint cannot be abused as an SSRF primitive. Empty
-    /// means no callback is allowed (enrollment is refused until the operator configures this).
+    /// means no callback is allowed (registration is refused until the operator configures this).
     /// </summary>
     public List<string> CallbackAllowedHosts { get; set; } = [];
 
-    /// <summary>Directory holding the encrypted per-site pepper files and per-tenant credential records.</summary>
+    /// <summary>Directory holding the encrypted per-site pepper files and per-site credential records.</summary>
     public string StorePath { get; set; } = "peppers";
 }

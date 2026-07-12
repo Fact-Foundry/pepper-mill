@@ -18,13 +18,14 @@ auth/provisioning model. Operational detail is in `docs/operations.md`.
 
 ## Architecture
 
-- .NET 10, ASP.NET Minimal API. No database — peppers and per-tenant credential records are held as
+- .NET 10, ASP.NET Minimal API. No database — peppers and per-site credential records are held as
   files in an encrypted store (peppers encrypted at rest; credential records hold hashes only).
 - **OpenAPI + Scalar** for the interactive API reference (`/scalar/v1`); no Swashbuckle.
-- A tenant enrolls via a callback handshake to establish its bearer credential (`key2`); a fetch
-  resolves that credential to a tenant, so the request body's `tenantId` is a cross-check, never the
-  authority. Peppers are per `(tenantId, siteId)`; the credential is per tenant.
-- One codebase, a pluggable `IEntitlementProvider`: `Local` (resolves against enrolled tenant
+- A site registers via a callback handshake to establish its bearer credential (`key2`) and create
+  its pepper; a fetch resolves that credential against the `(tenantId, siteId)` record, so the body's
+  ids are a claim that must match. Both peppers and credentials are per `(tenantId, siteId)` — a
+  leaked `key2` is scoped to one site, and sites are not implicit (a fetch for an unregistered site is 403).
+- One codebase, a pluggable `IEntitlementProvider`: `Local` (resolves against registered site
   credentials) vs `Platform` (external delegation, currently stubbed).
 
 ## Project Structure
@@ -44,12 +45,12 @@ auth/provisioning model. Operational detail is in `docs/operations.md`.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/peppers/current` | Return a site's current pepper (bearer `key2` → tenant) |
+| `POST /v1/peppers/current` | Return a site's current pepper (bearer `key2` → site) |
 | `POST /v1/peppers/rotate` | Force-rotate a site's pepper now (bearer `key2`) |
-| `POST /v1/webhooks/provision` | Enroll a tenant — establish `key2` via the callback handshake |
-| `POST /v1/webhooks/revoke` | Revoke a tenant — destroy its peppers and un-enroll (bearer `key2`) |
-| `POST /v1/webhooks/rotate-credential` | Rotate a tenant's `key2` via the pinned callback (bearer `key2`) |
-| `POST /v1/tenants/schedule` | Update a tenant's rotation cadence (bearer `key2`) |
+| `POST /v1/webhooks/provision` | Register a site — create its pepper + establish `key2` via the callback handshake |
+| `POST /v1/webhooks/revoke` | Revoke a site — destroy its pepper and un-register (bearer `key2`) |
+| `POST /v1/webhooks/rotate-credential` | Rotate a site's `key2` via the pinned callback (bearer `key2`) |
+| `POST /v1/tenants/schedule` | Update a site's rotation cadence (bearer `key2`) |
 | `GET /health` | Liveness probe |
 
 ## Coding Standards

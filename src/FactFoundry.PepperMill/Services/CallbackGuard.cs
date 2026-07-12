@@ -1,7 +1,7 @@
 namespace FactFoundry.PepperMill.Services;
 
 /// <summary>
-/// Guards the enrollment callback against SSRF. PepperMill only ever calls back to a URL whose host
+/// Guards the registration callback against SSRF. PepperMill only ever calls back to a URL whose host
 /// is on the operator-configured allowlist; anything else is refused before any outbound request is made.
 /// </summary>
 public static class CallbackGuard

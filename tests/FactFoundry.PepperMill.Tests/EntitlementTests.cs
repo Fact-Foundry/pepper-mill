@@ -4,10 +4,10 @@ namespace FactFoundry.PepperMill.Tests;
 
 public class LocalEntitlementProviderTests
 {
-    private static TenantCredential Enrolled(string tenantId, string key2) =>
-        new(tenantId, CredentialHasher.Hash(key2), "https://cb.internal/hook", RotationIntervalDays: null, Locked: true, DateTimeOffset.UtcNow);
+    private static SiteCredential Registered(string tenantId, string siteId, string key2) =>
+        new(tenantId, siteId, CredentialHasher.Hash(key2), "https://cb.internal/hook", RotationIntervalDays: null, Locked: true, DateTimeOffset.UtcNow);
 
-    private static async Task<LocalEntitlementProvider> ProviderWith(params TenantCredential[] credentials)
+    private static async Task<LocalEntitlementProvider> ProviderWith(params SiteCredential[] credentials)
     {
         var store = new InMemoryCredentialStore();
         foreach (var c in credentials)
@@ -16,35 +16,49 @@ public class LocalEntitlementProviderTests
     }
 
     [Fact]
-    public async Task EnrolledTenant_CorrectCredential_IsEntitled()
+    public async Task RegisteredSite_CorrectCredential_IsEntitled()
     {
-        var provider = await ProviderWith(Enrolled("acme", "the-key2"));
+        var provider = await ProviderWith(Registered("acme", "blog", "the-key2"));
 
-        Assert.True(await provider.IsEntitledAsync("the-key2", "acme", "any-site"));
+        Assert.True(await provider.IsEntitledAsync("the-key2", "acme", "blog"));
     }
 
     [Fact]
     public async Task WrongCredential_IsNotEntitled()
     {
-        var provider = await ProviderWith(Enrolled("acme", "the-key2"));
+        var provider = await ProviderWith(Registered("acme", "blog", "the-key2"));
 
-        Assert.False(await provider.IsEntitledAsync("guessing", "acme", "any-site"));
+        Assert.False(await provider.IsEntitledAsync("guessing", "acme", "blog"));
     }
 
     [Fact]
-    public async Task UnenrolledTenant_IsNotEntitled()
+    public async Task UnregisteredSite_IsNotEntitled()
     {
         var provider = new LocalEntitlementProvider(new InMemoryCredentialStore());
 
-        Assert.False(await provider.IsEntitledAsync("anything", "nobody", "any-site"));
+        Assert.False(await provider.IsEntitledAsync("anything", "acme", "nobody"));
     }
 
     [Fact]
-    public async Task CredentialForOneTenant_CannotClaimAnother()
+    public async Task CredentialForOneSite_CannotClaimAnotherSite()
     {
-        var provider = await ProviderWith(Enrolled("tenant-a", "a-key2"), Enrolled("tenant-b", "b-key2"));
+        // Two sites under the same tenant, each with its own credential.
+        var provider = await ProviderWith(
+            Registered("acme", "blog", "blog-key2"),
+            Registered("acme", "shop", "shop-key2"));
 
-        // A's credential works for A but not for B — changing the body tenantId does not help.
+        // blog's credential works for blog but not for shop — the leak is scoped to one site.
+        Assert.True(await provider.IsEntitledAsync("blog-key2", "acme", "blog"));
+        Assert.False(await provider.IsEntitledAsync("blog-key2", "acme", "shop"));
+    }
+
+    [Fact]
+    public async Task CredentialForOneTenant_CannotClaimAnotherTenant()
+    {
+        var provider = await ProviderWith(
+            Registered("tenant-a", "site", "a-key2"),
+            Registered("tenant-b", "site", "b-key2"));
+
         Assert.True(await provider.IsEntitledAsync("a-key2", "tenant-a", "site"));
         Assert.False(await provider.IsEntitledAsync("a-key2", "tenant-b", "site"));
     }
@@ -54,8 +68,8 @@ public class LocalEntitlementProviderTests
     [InlineData(null)]
     public async Task EmptyCredential_IsNotEntitled(string? credential)
     {
-        var provider = await ProviderWith(Enrolled("acme", "the-key2"));
+        var provider = await ProviderWith(Registered("acme", "blog", "the-key2"));
 
-        Assert.False(await provider.IsEntitledAsync(credential!, "acme", "any-site"));
+        Assert.False(await provider.IsEntitledAsync(credential!, "acme", "blog"));
     }
 }

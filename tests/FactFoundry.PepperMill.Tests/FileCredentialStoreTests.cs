@@ -11,8 +11,8 @@ public class FileCredentialStoreTests : IDisposable
     private FileCredentialStore NewStore() =>
         new(Options.Create(new PepperMillOptions { StorePath = _storeDir }));
 
-    private static TenantCredential Sample(string tenantId = "tenant-1", string key2Hash = "abc123", bool locked = true) =>
-        new(tenantId, key2Hash, "https://tf.internal/pepper-callback", RotationIntervalDays: null, locked, DateTimeOffset.UtcNow);
+    private static SiteCredential Sample(string tenantId = "tenant-1", string siteId = "site-1", string key2Hash = "abc123", bool locked = true) =>
+        new(tenantId, siteId, key2Hash, "https://tf.internal/pepper-callback", RotationIntervalDays: null, locked, DateTimeOffset.UtcNow);
 
     [Fact]
     public async Task SaveThenGet_RoundTrips()
@@ -21,7 +21,7 @@ public class FileCredentialStoreTests : IDisposable
         var cred = Sample();
         await store.SaveAsync(cred);
 
-        var loaded = await store.GetAsync("tenant-1");
+        var loaded = await store.GetAsync("tenant-1", "site-1");
 
         Assert.NotNull(loaded);
         Assert.Equal(cred.Key2Hash, loaded!.Key2Hash);
@@ -30,9 +30,9 @@ public class FileCredentialStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Get_UnknownTenant_ReturnsNull()
+    public async Task Get_UnknownSite_ReturnsNull()
     {
-        Assert.Null(await NewStore().GetAsync("nobody"));
+        Assert.Null(await NewStore().GetAsync("tenant-1", "nobody"));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class FileCredentialStoreTests : IDisposable
         await store.SaveAsync(Sample(key2Hash: "old"));
         await store.SaveAsync(Sample(key2Hash: "new"));
 
-        var loaded = await store.GetAsync("tenant-1");
+        var loaded = await store.GetAsync("tenant-1", "site-1");
 
         Assert.Equal("new", loaded!.Key2Hash);
     }
@@ -52,32 +52,44 @@ public class FileCredentialStoreTests : IDisposable
     {
         var store = NewStore();
         await store.SaveAsync(Sample());
-        await store.DeleteAsync("tenant-1");
+        await store.DeleteAsync("tenant-1", "site-1");
 
-        Assert.Null(await store.GetAsync("tenant-1"));
+        Assert.Null(await store.GetAsync("tenant-1", "site-1"));
     }
 
     [Fact]
-    public async Task DistinctTenants_AreIsolated()
+    public async Task SitesUnderOneTenant_HaveIndependentCredentials()
     {
         var store = NewStore();
-        await store.SaveAsync(Sample("tenant-a", "hash-a"));
-        await store.SaveAsync(Sample("tenant-b", "hash-b"));
+        await store.SaveAsync(Sample(siteId: "blog", key2Hash: "hash-blog"));
+        await store.SaveAsync(Sample(siteId: "shop", key2Hash: "hash-shop"));
 
-        Assert.Equal("hash-a", (await store.GetAsync("tenant-a"))!.Key2Hash);
-        Assert.Equal("hash-b", (await store.GetAsync("tenant-b"))!.Key2Hash);
+        Assert.Equal("hash-blog", (await store.GetAsync("tenant-1", "blog"))!.Key2Hash);
+        Assert.Equal("hash-shop", (await store.GetAsync("tenant-1", "shop"))!.Key2Hash);
     }
 
     [Fact]
-    public async Task FileOnDisk_DoesNotContainTheTenantIdInItsPath()
+    public async Task SameSiteId_DifferentTenants_AreIsolated()
     {
         var store = NewStore();
-        await store.SaveAsync(Sample("acme-corp"));
+        await store.SaveAsync(Sample(tenantId: "tenant-a", siteId: "shared", key2Hash: "hash-a"));
+        await store.SaveAsync(Sample(tenantId: "tenant-b", siteId: "shared", key2Hash: "hash-b"));
+
+        Assert.Equal("hash-a", (await store.GetAsync("tenant-a", "shared"))!.Key2Hash);
+        Assert.Equal("hash-b", (await store.GetAsync("tenant-b", "shared"))!.Key2Hash);
+    }
+
+    [Fact]
+    public async Task FileOnDisk_DoesNotContainTheIdsInItsPath()
+    {
+        var store = NewStore();
+        await store.SaveAsync(Sample("acme-corp", "acme-blog"));
 
         var file = Directory.EnumerateFiles(Path.Combine(_storeDir, "credentials"), "*.cred").Single();
 
-        // The tenant id must not appear in the file name (it is hashed).
+        // Neither id appears in the file name (they are hashed).
         Assert.DoesNotContain("acme-corp", Path.GetFileName(file));
+        Assert.DoesNotContain("acme-blog", Path.GetFileName(file));
     }
 
     public void Dispose()

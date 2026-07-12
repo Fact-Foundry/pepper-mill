@@ -35,20 +35,20 @@ internal sealed class InMemoryPepperStore : IPepperStore
 /// <summary>An in-memory <see cref="ICredentialStore"/> for fast entitlement tests.</summary>
 internal sealed class InMemoryCredentialStore : ICredentialStore
 {
-    private readonly Dictionary<string, TenantCredential> _creds = new();
+    private readonly Dictionary<(string TenantId, string SiteId), SiteCredential> _creds = new();
 
-    public Task<TenantCredential?> GetAsync(string tenantId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_creds.GetValueOrDefault(tenantId));
+    public Task<SiteCredential?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_creds.GetValueOrDefault((tenantId, siteId)));
 
-    public Task SaveAsync(TenantCredential credential, CancellationToken cancellationToken = default)
+    public Task SaveAsync(SiteCredential credential, CancellationToken cancellationToken = default)
     {
-        _creds[credential.TenantId] = credential;
+        _creds[(credential.TenantId, credential.SiteId)] = credential;
         return Task.CompletedTask;
     }
 
-    public Task DeleteAsync(string tenantId, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        _creds.Remove(tenantId);
+        _creds.Remove((tenantId, siteId));
         return Task.CompletedTask;
     }
 }

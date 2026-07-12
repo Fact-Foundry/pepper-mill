@@ -9,9 +9,9 @@ All settings live under the `PepperMill` configuration section (env vars use `Pe
 
 | Key | Meaning | Required |
 |---|---|---|
-| `EntitlementMode` | `Local` (resolve against enrolled tenant credentials) or `Platform` (external delegation, not implemented) | default `Local` |
+| `EntitlementMode` | `Local` (resolve against registered site credentials) or `Platform` (external delegation, not implemented) | default `Local` |
 | `StorageKeyBase64` | base64 of a **32-byte** AES-256 master key that encrypts peppers at rest | **yes, outside Development** |
-| `CallbackAllowedHosts` | hostnames PepperMill may call back to during enrollment (SSRF guard); indexed env keys `__0`, `__1`, … | yes, to enroll |
+| `CallbackAllowedHosts` | hostnames PepperMill may call back to during registration (SSRF guard); indexed env keys `__0`, `__1`, … | yes, to register |
 | `StorePath` | directory holding encrypted pepper files, credential records + the audit log | default `peppers` |
 
 ### Generating the storage key
@@ -60,7 +60,7 @@ no analytics or behavioral data is affected).
 
 ## Auditing
 
-Every fetch / enroll / revoke / rotate appends a JSON line to `StorePath/audit.log`. Entries carry
+Every fetch / register / revoke / rotate appends a JSON line to `StorePath/audit.log`. Entries carry
 metadata only (timestamp, event, tenant/site id, epoch) — **never** pepper or credential material.
 
 ## Deployment notes

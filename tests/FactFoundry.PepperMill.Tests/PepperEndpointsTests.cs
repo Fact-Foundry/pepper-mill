@@ -16,11 +16,13 @@ public class PepperEndpointsTests : IDisposable
 {
     private const string Tenant = "tenant-1";
     private const string CallbackUrl = "https://callback.test/hook";
-    private const string Key1 = "k1";
     private readonly string _storeDir = Path.Combine(Path.GetTempPath(), "pm-api-" + Guid.NewGuid());
 
-    /// <summary>The <c>key2</c> the stand-in client issues for a given <c>key1</c> — so a rotation (new key1) yields a new key2.</summary>
+    // The stand-in client issues a key2 derived from key1; registration uses a key1 derived from the
+    // site id, so each site ends up with its own distinct key2.
+    private static string Key1For(string siteId) => $"k1-{siteId}";
     private static string Key2For(string key1) => $"k2::{key1}";
+    private static string SiteKey2(string siteId) => Key2For(Key1For(siteId));
 
     /// <summary>Stands in for the client callback endpoint — issues a <c>key2</c> derived from the challenge <c>key1</c>.</summary>
     private sealed class FakeCallbackClient : ICallbackClient
@@ -47,8 +49,11 @@ public class PepperEndpointsTests : IDisposable
 
     private HttpClient Client() => new Factory(_storeDir).CreateClient();
 
-    private static HttpRequestMessage Enroll(string tenantId, string callbackUrl = CallbackUrl, string key1 = "k1")
-        => new(HttpMethod.Post, "/v1/webhooks/provision") { Content = JsonContent.Create(new { tenantId, callbackUrl, key1 }) };
+    private static HttpRequestMessage Register(string siteId, string tenantId = Tenant, string callbackUrl = CallbackUrl, string? key1 = null)
+        => new(HttpMethod.Post, "/v1/webhooks/provision")
+        {
+            Content = JsonContent.Create(new { tenantId, siteId, callbackUrl, key1 = key1 ?? Key1For(siteId) }),
+        };
 
     private static HttpRequestMessage Fetch(string siteId, string? credential, string tenantId = Tenant)
     {
@@ -61,19 +66,19 @@ public class PepperEndpointsTests : IDisposable
         return req;
     }
 
-    private static async Task EnrollTenant(HttpClient client, string tenantId = Tenant)
+    private static async Task RegisterSite(HttpClient client, string siteId = "site-1", string tenantId = Tenant)
     {
-        var resp = await client.SendAsync(Enroll(tenantId));
+        var resp = await client.SendAsync(Register(siteId, tenantId));
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
     }
 
     [Fact]
-    public async Task Enroll_ThenFetch_ReturnsA256BitPepper()
+    public async Task Register_ThenFetch_ReturnsA256BitPepper()
     {
         var client = Client();
-        await EnrollTenant(client);
+        await RegisterSite(client, "site-1");
 
-        var resp = await client.SendAsync(Fetch("site-1", Key2For(Key1)));
+        var resp = await client.SendAsync(Fetch("site-1", SiteKey2("site-1")));
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<PepperFetchResponse>();
@@ -86,10 +91,10 @@ public class PepperEndpointsTests : IDisposable
     public async Task Fetch_IsStableWithinTheEpoch()
     {
         var client = Client();
-        await EnrollTenant(client);
+        await RegisterSite(client, "site-1");
 
-        var first = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
-        var second = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+        var first = await (await client.SendAsync(Fetch("site-1", SiteKey2("site-1")))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+        var second = await (await client.SendAsync(Fetch("site-1", SiteKey2("site-1")))).Content.ReadFromJsonAsync<PepperFetchResponse>();
 
         Assert.Equal(first!.Pepper, second!.Pepper);
     }
@@ -98,7 +103,7 @@ public class PepperEndpointsTests : IDisposable
     public async Task Fetch_MissingCredential_Returns401()
     {
         var client = Client();
-        await EnrollTenant(client);
+        await RegisterSite(client, "site-1");
 
         var resp = await client.SendAsync(Fetch("site-1", credential: null));
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
@@ -108,16 +113,17 @@ public class PepperEndpointsTests : IDisposable
     public async Task Fetch_WrongCredential_Returns403()
     {
         var client = Client();
-        await EnrollTenant(client);
+        await RegisterSite(client, "site-1");
 
         var resp = await client.SendAsync(Fetch("site-1", credential: "nope"));
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
     [Fact]
-    public async Task Fetch_UnenrolledTenant_Returns403()
+    public async Task Fetch_UnregisteredSite_Returns403()
     {
-        var resp = await Client().SendAsync(Fetch("site-1", Key2For(Key1), tenantId: "not-enrolled"));
+        // Sites are no longer implicit — a fetch for a site that never registered is denied.
+        var resp = await Client().SendAsync(Fetch("never-registered", SiteKey2("never-registered")));
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
@@ -128,49 +134,78 @@ public class PepperEndpointsTests : IDisposable
         {
             Content = JsonContent.Create(new { siteId = "site-1" }),
         };
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Key2For(Key1));
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", SiteKey2("site-1"));
 
         var resp = await Client().SendAsync(req);
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
     [Fact]
-    public async Task Enroll_Twice_Returns409()
+    public async Task CredentialForOneSite_CannotFetchAnother_Returns403()
     {
         var client = Client();
-        await EnrollTenant(client);
+        await RegisterSite(client, "blog");
+        await RegisterSite(client, "shop");
 
-        var second = await client.SendAsync(Enroll(Tenant));
+        // blog's key2 works for blog...
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Fetch("blog", SiteKey2("blog")))).StatusCode);
+        // ...but not for shop — a leaked credential is scoped to a single site.
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Fetch("shop", SiteKey2("blog")))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Register_Twice_Returns409()
+    {
+        var client = Client();
+        await RegisterSite(client, "site-1");
+
+        var second = await client.SendAsync(Register("site-1"));
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
     }
 
     [Fact]
-    public async Task Enroll_DisallowedCallbackHost_Returns403()
+    public async Task Register_DisallowedCallbackHost_Returns403()
     {
-        var resp = await Client().SendAsync(Enroll(Tenant, callbackUrl: "https://evil.example/hook"));
+        var resp = await Client().SendAsync(Register("site-1", callbackUrl: "https://evil.example/hook"));
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Revoke_UnregistersTheSite()
+    {
+        var client = Client();
+        await RegisterSite(client, "site-1");
+
+        var revoke = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/revoke")
+        {
+            Content = JsonContent.Create(new { tenantId = Tenant, siteId = "site-1" }),
+        };
+        revoke.Headers.Authorization = new AuthenticationHeaderValue("Bearer", SiteKey2("site-1"));
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(revoke)).StatusCode);
+
+        // After revoke the site is unregistered — a fetch is denied.
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Fetch("site-1", SiteKey2("site-1")))).StatusCode);
     }
 
     [Fact]
     public async Task ForceRotate_IssuesADifferentPepper()
     {
         var client = Client();
-        await EnrollTenant(client);
-        var before = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+        await RegisterSite(client, "site-1");
+        var before = await (await client.SendAsync(Fetch("site-1", SiteKey2("site-1")))).Content.ReadFromJsonAsync<PepperFetchResponse>();
 
         var rotate = new HttpRequestMessage(HttpMethod.Post, "/v1/peppers/rotate")
         {
             Content = JsonContent.Create(new { tenantId = Tenant, siteId = "site-1" }),
         };
-        rotate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Key2For(Key1));
+        rotate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", SiteKey2("site-1"));
         var rotateResp = await client.SendAsync(rotate);
 
         Assert.Equal(HttpStatusCode.OK, rotateResp.StatusCode);
         var rotated = await rotateResp.Content.ReadFromJsonAsync<PepperFetchResponse>();
         Assert.NotEqual(before!.Pepper, rotated!.Pepper);
 
-        // A subsequent fetch returns the rotated value, not the old one.
-        var after = await (await client.SendAsync(Fetch("site-1", Key2For(Key1)))).Content.ReadFromJsonAsync<PepperFetchResponse>();
+        var after = await (await client.SendAsync(Fetch("site-1", SiteKey2("site-1")))).Content.ReadFromJsonAsync<PepperFetchResponse>();
         Assert.Equal(rotated.Pepper, after!.Pepper);
     }
 
@@ -178,7 +213,7 @@ public class PepperEndpointsTests : IDisposable
     public async Task ForceRotate_WrongCredential_Returns403()
     {
         var client = Client();
-        await EnrollTenant(client);
+        await RegisterSite(client, "site-1");
 
         var rotate = new HttpRequestMessage(HttpMethod.Post, "/v1/peppers/rotate")
         {
@@ -192,12 +227,12 @@ public class PepperEndpointsTests : IDisposable
     public async Task RotateCredential_RetiresOldKeyAndActivatesNew()
     {
         var client = Client();
-        await EnrollTenant(client);
-        var oldKey2 = Key2For(Key1);
+        await RegisterSite(client, "site-1");
+        var oldKey2 = SiteKey2("site-1");
 
         var rotate = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/rotate-credential")
         {
-            Content = JsonContent.Create(new { tenantId = Tenant, key1 = "k1-rot" }),
+            Content = JsonContent.Create(new { tenantId = Tenant, siteId = "site-1", key1 = "k1-rot" }),
         };
         rotate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", oldKey2);
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(rotate)).StatusCode);
@@ -211,13 +246,13 @@ public class PepperEndpointsTests : IDisposable
     public async Task UpdateSchedule_WithValidCredential_Returns200()
     {
         var client = Client();
-        await EnrollTenant(client);
+        await RegisterSite(client, "site-1");
 
         var req = new HttpRequestMessage(HttpMethod.Post, "/v1/tenants/schedule")
         {
-            Content = JsonContent.Create(new { tenantId = Tenant, rotationIntervalDays = 90 }),
+            Content = JsonContent.Create(new { tenantId = Tenant, siteId = "site-1", rotationIntervalDays = 90 }),
         };
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Key2For(Key1));
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", SiteKey2("site-1"));
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(req)).StatusCode);
     }
 

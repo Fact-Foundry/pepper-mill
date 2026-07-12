@@ -6,10 +6,11 @@ using Microsoft.Extensions.Options;
 namespace FactFoundry.PepperMill.Services;
 
 /// <summary>
-/// File-backed <see cref="ICredentialStore"/>. One JSON file per tenant, named by a hash of the tenant
-/// id (so the id never appears in a path). Records hold only a credential hash and non-secret metadata,
-/// so — unlike the pepper store — they are not encrypted: there is nothing secret to protect at rest.
-/// Files live in a <c>credentials</c> subdirectory of the store path, separate from the <c>.pepper</c> files.
+/// File-backed <see cref="ICredentialStore"/>. One JSON file per site, named by a hash of the
+/// <c>(tenantId, siteId)</c> pair (so neither id appears in a path). Records hold only a credential
+/// hash and non-secret metadata, so — unlike the pepper store — they are not encrypted: there is
+/// nothing secret to protect at rest. Files live in a <c>credentials</c> subdirectory of the store
+/// path, separate from the <c>.pepper</c> files.
 /// </summary>
 public sealed class FileCredentialStore : ICredentialStore
 {
@@ -26,9 +27,9 @@ public sealed class FileCredentialStore : ICredentialStore
     }
 
     /// <inheritdoc />
-    public async Task<TenantCredential?> GetAsync(string tenantId, CancellationToken cancellationToken = default)
+    public async Task<SiteCredential?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(tenantId);
+        var path = PathFor(tenantId, siteId);
         if (!File.Exists(path))
             return null;
 
@@ -36,7 +37,7 @@ public sealed class FileCredentialStore : ICredentialStore
         try
         {
             var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-            return JsonSerializer.Deserialize<TenantCredential>(bytes, JsonOptions)
+            return JsonSerializer.Deserialize<SiteCredential>(bytes, JsonOptions)
                 ?? throw new InvalidOperationException("Credential record was empty.");
         }
         finally
@@ -46,9 +47,9 @@ public sealed class FileCredentialStore : ICredentialStore
     }
 
     /// <inheritdoc />
-    public async Task SaveAsync(TenantCredential credential, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(SiteCredential credential, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(credential.TenantId);
+        var path = PathFor(credential.TenantId, credential.SiteId);
         var payload = JsonSerializer.SerializeToUtf8Bytes(credential, JsonOptions);
 
         await _gate.WaitAsync(cancellationToken);
@@ -65,9 +66,9 @@ public sealed class FileCredentialStore : ICredentialStore
     }
 
     /// <inheritdoc />
-    public async Task DeleteAsync(string tenantId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(tenantId);
+        var path = PathFor(tenantId, siteId);
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -80,10 +81,13 @@ public sealed class FileCredentialStore : ICredentialStore
         }
     }
 
-    /// <summary>Maps a tenant id to its credential file path via a hash — the id never appears in the path.</summary>
-    private string PathFor(string tenantId)
+    /// <summary>Maps a (tenant, site) pair to its credential file path via a collision-resistant hash — the ids never appear in the path.</summary>
+    private string PathFor(string tenantId, string siteId)
     {
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(tenantId)));
+        // Length-prefix each component so distinct (tenant, site) pairs can never collide onto the
+        // same file (e.g. "ab"/"c" vs "a"/"bc").
+        var composite = $"{tenantId.Length}:{tenantId}:{siteId.Length}:{siteId}";
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(composite)));
         return Path.Combine(_directory, hash + ".cred");
     }
 }

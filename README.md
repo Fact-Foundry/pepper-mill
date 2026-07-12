@@ -5,7 +5,7 @@ per-site **peppers** that key TelemetryForge's visitor-identity hashes, and serv
 authenticated servers — so the secret that could reverse a visitor hash lives outside the
 customer's infrastructure.
 
-**New here?** The [**User Guide**](docs/user-guide.md) walks through setup, enrolling a tenant,
+**New here?** The [**User Guide**](docs/user-guide.md) walks through setup, registering a site,
 fetching a pepper, health checks, the Scalar test UI, and running it in a container.
 
 Design decisions live in [`docs/design/decisions/`](docs/design/decisions); operations reference:
@@ -37,7 +37,7 @@ provider, not reimplemented here.
 
 | Provider | Entitlement |
 |---|---|
-| `Local` (ships here) | resolves the presented credential against the enrolled tenant records |
+| `Local` (ships here) | resolves the presented credential against the registered site records |
 | `Platform` | delegates to an external provider *(not yet implemented)* |
 
 ## Quick start (dev)
@@ -55,15 +55,16 @@ http://localhost:<port>/scalar/v1        # Scalar — try the endpoints in the b
 http://localhost:<port>/openapi/v1.json  # raw OpenAPI document
 ```
 
-A tenant first **enrolls** to establish its bearer credential (`key2`), then fetches peppers with it:
+Each **site** first **registers** — which creates its pepper and establishes its own bearer credential
+(`key2`) — then fetches peppers with that credential:
 
 ```bash
-# 1. Enroll. PepperMill calls your callbackUrl with key1; your endpoint replies { "key2": "<secret>" }.
+# 1. Register a site. PepperMill calls your callbackUrl with key1; your endpoint replies { "key2": "<secret>" }.
 curl -X POST http://localhost:<port>/v1/webhooks/provision \
   -H "Content-Type: application/json" \
-  -d '{"tenantId":"my-tenant","callbackUrl":"http://localhost:9000/pepper-callback","key1":"<nonce>"}'
+  -d '{"tenantId":"my-tenant","siteId":"my-site","callbackUrl":"http://localhost:9000/pepper-callback","key1":"<nonce>"}'
 
-# 2. Fetch a pepper with the key2 your callback issued.
+# 2. Fetch that site's pepper with the key2 its callback issued.
 curl -X POST http://localhost:<port>/v1/peppers/current \
   -H "Authorization: Bearer <key2>" \
   -H "Content-Type: application/json" \
@@ -71,9 +72,10 @@ curl -X POST http://localhost:<port>/v1/peppers/current \
 # → { "pepper": "<base64>", "epoch": "2026-07", "rotatesAtUtc": "2026-08-01T00:00:00+00:00" }
 ```
 
-Enrollment is a server-to-server handshake — your server exposes the callback that issues `key2`.
-The [User Guide](docs/user-guide.md) walks through it. For production, set a real 32-byte storage key
-and configure `CallbackAllowedHosts` — see [`docs/operations.md`](docs/operations.md).
+Registration is a server-to-server handshake — your server exposes the callback that issues `key2`.
+Each site has its own `key2`, so a leaked credential is scoped to one site. The
+[User Guide](docs/user-guide.md) walks through it. For production, set a real 32-byte storage key and
+configure `CallbackAllowedHosts` — see [`docs/operations.md`](docs/operations.md).
 
 ## Run with Docker
 
@@ -91,22 +93,23 @@ Full container notes (volume/backups, ports, health) are in the
 | Method & path | Purpose |
 |---|---|
 | `POST /v1/peppers/current` | Return a site's current pepper (bearer `key2`) |
-| `POST /v1/webhooks/provision` | Enroll a tenant — establish its credential via the callback handshake |
-| `POST /v1/webhooks/revoke` | Revoke a tenant — destroy its peppers and un-enroll |
+| `POST /v1/webhooks/provision` | Register a site — create its pepper + establish its credential via the callback handshake |
+| `POST /v1/webhooks/revoke` | Revoke a site — destroy its pepper and un-register |
 | `POST /v1/peppers/rotate` | Force-rotate a site's pepper now |
-| `POST /v1/webhooks/rotate-credential` | Rotate a tenant's `key2` via the pinned callback |
-| `POST /v1/tenants/schedule` | Update a tenant's rotation cadence |
+| `POST /v1/webhooks/rotate-credential` | Rotate a site's `key2` via the pinned callback |
+| `POST /v1/tenants/schedule` | Update a site's rotation cadence |
 | `GET /health` | Liveness probe |
 
 ## Security posture
 
 - Peppers are **encrypted at rest** (AES-256-GCM) under a master key held outside the store; a copy
   of the files alone is useless.
-- Peppers are **never logged**; the audit log records only metadata (fetch / enroll / revoke / rotate).
-- A credential decides its tenant — the request body's `tenantId` is a cross-check, never the
-  authority, so a caller can't reach another tenant's pepper.
-- The enrollment callback is **SSRF-guarded** by a host allowlist; credential rotation reuses the
-  callback URL pinned at enrollment, never a request-supplied one.
+- Peppers are **never logged**; the audit log records only metadata (fetch / register / revoke / rotate).
+- Each credential is **scoped to one site** `(tenantId, siteId)` — the request body's ids are a claim
+  that must match the credential, so a caller can't reach another site's pepper, and a leaked `key2`
+  exposes a single site.
+- The registration callback is **SSRF-guarded** by a host allowlist; credential rotation reuses the
+  callback URL pinned at registration, never a request-supplied one.
 - Rotation is a **destruction ceremony** — the prior epoch's pepper is overwritten, never archived.
 - The store keeps **only the current epoch** per site.
 

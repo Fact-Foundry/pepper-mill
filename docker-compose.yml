@@ -6,8 +6,8 @@
 #
 # The storage key is REQUIRED — compose refuses to start without it (the `:?`
 # guard below), matching the server's own fail-fast. It comes from the
-# environment / .env, never from this file. Tenant credentials are NOT
-# configured here — each tenant establishes its own via enrollment.
+# environment / .env, never from this file. Site credentials are NOT
+# configured here — each site establishes its own via registration.
 
 services:
   peppermill:
@@ -22,7 +22,7 @@ services:
       PepperMill__EntitlementMode: Local
       PepperMill__StorageKeyBase64: ${PEPPERMILL_STORAGE_KEY:?set PEPPERMILL_STORAGE_KEY in .env — base64 of 32 random bytes}
       PepperMill__StorePath: /data/peppers
-      # To enroll tenants, allowlist your servers' enrollment callback hosts, e.g.:
+      # To register sites, allowlist your servers' registration callback hosts, e.g.:
       #   PepperMill__CallbackAllowedHosts__0: tf-server-1.internal
     volumes:
       # Durable, encrypted-at-rest pepper store + audit log. Back this up.
