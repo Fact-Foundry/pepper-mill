@@ -85,9 +85,10 @@ curl -X POST http://localhost:<port>/v1/peppers/current \
 ```
 
 Registration is a server-to-server handshake — your server exposes the callback that issues `key2`.
-Each site has its own `key2`, so a leaked credential is scoped to one site. The
-[User Guide](docs/user-guide.md) walks through it. For production, set a real 32-byte storage key and
-configure `CallbackAllowedHosts` — see [`docs/operations.md`](docs/operations.md).
+Each site has its own `key2`, so a leaked credential is scoped to one site. Every request also takes
+an optional `clusterId` (defaults to `default`) — set it to segregate multiple independent clusters
+served by one instance. The [User Guide](docs/user-guide.md) walks through it. For production, set a
+real 32-byte storage key and configure `CallbackAllowedHosts` — see [`docs/operations.md`](docs/operations.md).
 
 ## Run with Docker
 

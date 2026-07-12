@@ -22,7 +22,7 @@
    1. Client → PepperMill `POST /v1/webhooks/provision`: `{ tenantId, siteId, callbackUrl, key1, rotationIntervalDays? }`.
    2. PepperMill → `callbackUrl`: presents `{ tenantId, key1 }`.
    3. Client verifies `key1` matches the request it just made and responds `{ key2 }` (the auth credential it generated).
-   4. PepperMill stores `(tenantId, siteId) → { hash(key2), callbackUrl, rotationPolicy, locked: true }`, **creates the site's pepper**, and returns success to the step-1 caller.
+   4. PepperMill stores `(clusterId, tenantId, siteId) → { hash(key2), callbackUrl, rotationPolicy, locked: true }`, **creates the site's pepper**, and returns success to the step-1 caller.
    5. Client retains `key2` (its own environment) for all subsequent fetches of that site.
 
    The `key1` echo proves to the client that the service calling its callback is the same PepperMill it just contacted; the round trip is fast, and should run over HTTPS (strongly recommended — see decision 7). This matches the client's site-setup flow: registering a site *is* the act of creating its pepper.
@@ -68,8 +68,8 @@
 
 ## Scope of change
 
-- **Credential store** — a per-site record `{ tenantId, siteId, key2Hash, callbackUrl, rotationPolicy, locked }` keyed by `(tenantId, siteId)`, persisted as files in the store directory (alongside the peppers; hashes only, no raw credentials). SHA-256 of the high-entropy credential; no slow KDF; compared constant-time (`CryptographicOperations.FixedTimeEquals`).
-- **`IEntitlementProvider`** — `LocalEntitlementProvider` resolves a presented credential against the `(tenantId, siteId)` record.
+- **Credential store** — a per-site record `{ clusterId, tenantId, siteId, key2Hash, callbackUrl, rotationPolicy, locked }` keyed by `(clusterId, tenantId, siteId)`, persisted via the configured backend (File or Postgres; hashes only, no raw credentials). SHA-256 of the high-entropy credential; no slow KDF; compared constant-time (`CryptographicOperations.FixedTimeEquals`).
+- **`IEntitlementProvider`** — `LocalEntitlementProvider` resolves a presented credential against the `(clusterId, tenantId, siteId)` record.
 - **Provision endpoint** — the registration handshake (outbound callback, lock) that also creates the site's pepper. Body: `{ tenantId, siteId, callbackUrl, key1, rotationIntervalDays? }`.
 - **Revoke / update / rotate operations** — all per site (decision 5).
 - **Outbound HTTP client** for the callback, with a host allowlist (required); HTTPS supported and recommended, not enforced.

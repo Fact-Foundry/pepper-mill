@@ -78,7 +78,9 @@ dotnet FactFoundry.PepperMill.dll
 |---|---|---|
 | `PepperMill__StorageKeyBase64` | base64 of a **32-byte** AES-256 key that encrypts peppers at rest | **yes (outside Development)** |
 | `PepperMill__CallbackAllowedHosts__N` | hostnames PepperMill may call back to during registration (SSRF guard); empty ⇒ registration refused | **yes (to register)** |
-| `PepperMill__StorePath` | directory for the encrypted pepper files, credential records, and `audit.log` | no — default `peppers` |
+| `PepperMill__StorageProvider` | storage backend: `File` (encrypted files, zero deps) or `Postgres` (shared/HA — see [operations.md](operations.md)) | no — default `File` |
+| `PepperMill__PostgresConnectionString` | Postgres connection string (schema created idempotently at startup) | **yes, if `StorageProvider = Postgres`** |
+| `PepperMill__StorePath` | directory for the encrypted pepper files, credential records, and `audit.log` (File backend; audit log lives here on any backend) | no — default `peppers` |
 | `PepperMill__EntitlementMode` | `Local` (this guide) or `Platform` (external delegation, not implemented) | no — default `Local` |
 
 > **Keep it internal.** PepperMill is meant to run on a private network, reachable only by your servers.
@@ -176,6 +178,11 @@ Response:
 The credential is scoped to one site: `key2` is valid only for the exact `(tenantId, siteId)` it was registered
 for — changing either to something it wasn't registered for returns `403`. So a leaked `key2` exposes a single
 site's pepper, nothing more.
+
+> **Multiple clusters?** Every request (register, fetch, revoke, rotate) also accepts an optional `clusterId`,
+> defaulting to `"default"`. Set it if one PepperMill instance serves several **independent** clusters — the
+> same `tenantId`/`siteId` under different `clusterId`s are fully segregated (distinct peppers and credentials).
+> It's a namespace, not a security control, so you can leave it unset for a single-cluster deployment.
 
 To force a fresh pepper for a site immediately (destroying the current one), call `POST /v1/peppers/rotate`
 with the same body and bearer; it returns the new pepper.

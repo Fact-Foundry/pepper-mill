@@ -24,8 +24,9 @@ auth/provisioning model. Operational detail is in `docs/operations.md`.
   so the store only ever holds ciphertext; credential records hold hashes only.
 - **OpenAPI + Scalar** for the interactive API reference (`/scalar/v1`); no Swashbuckle.
 - A site registers via a callback handshake to establish its bearer credential (`key2`) and create
-  its pepper; a fetch resolves that credential against the `(tenantId, siteId)` record, so the body's
-  ids are a claim that must match. Both peppers and credentials are per `(tenantId, siteId)` — a
+  its pepper; a fetch resolves that credential against the `(clusterId, tenantId, siteId)` record, so
+  the body's ids are a claim that must match. Both peppers and credentials are keyed by
+  `(clusterId, tenantId, siteId)` (`clusterId` is an optional namespace, default `"default"`) — a
   leaked `key2` is scoped to one site, and sites are not implicit (a fetch for an unregistered site is 403).
 - One codebase, a pluggable `IEntitlementProvider`: `Local` (resolves against registered site
   credentials) vs `Platform` (external delegation, currently stubbed).
