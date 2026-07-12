@@ -9,10 +9,11 @@ namespace FactFoundry.PepperMill.Services;
 public interface ICallbackClient
 {
     /// <summary>
-    /// Calls <paramref name="callbackUrl"/> with <c>{ tenantId, key1 }</c> and returns the <c>key2</c>
-    /// the client responds with, or null if the callback failed or returned no credential.
+    /// Calls <paramref name="callbackUrl"/> with <c>{ clusterId, tenantId, siteId, key1 }</c> and returns
+    /// the <c>key2</c> the client responds with, or null if the callback failed or returned no credential.
+    /// The client correlates by <c>key1</c>; the identity fields let it verify what it is issuing for.
     /// </summary>
-    Task<string?> RequestCredentialAsync(string callbackUrl, string tenantId, string key1, CancellationToken cancellationToken = default);
+    Task<string?> RequestCredentialAsync(string callbackUrl, string clusterId, string tenantId, string siteId, string key1, CancellationToken cancellationToken = default);
 }
 
 /// <summary>HTTP implementation of <see cref="ICallbackClient"/>. The caller must guard the URL first.</summary>
@@ -29,21 +30,21 @@ public sealed class HttpCallbackClient : ICallbackClient
     }
 
     /// <inheritdoc />
-    public async Task<string?> RequestCredentialAsync(string callbackUrl, string tenantId, string key1, CancellationToken cancellationToken = default)
+    public async Task<string?> RequestCredentialAsync(string callbackUrl, string clusterId, string tenantId, string siteId, string key1, CancellationToken cancellationToken = default)
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync(callbackUrl, new { tenantId, key1 }, cancellationToken);
+            using var response = await _http.PostAsJsonAsync(callbackUrl, new { clusterId, tenantId, siteId, key1 }, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Registration callback for tenant {TenantId} returned HTTP {Status}.", tenantId, (int)response.StatusCode);
+                _logger.LogWarning("Registration callback for {ClusterId}/{TenantId}/{SiteId} returned HTTP {Status}.", clusterId, tenantId, siteId, (int)response.StatusCode);
                 return null;
             }
 
             var body = await response.Content.ReadFromJsonAsync<CallbackResponse>(cancellationToken);
             if (string.IsNullOrEmpty(body?.Key2))
             {
-                _logger.LogWarning("Registration callback for tenant {TenantId} returned no key2.", tenantId);
+                _logger.LogWarning("Registration callback for {ClusterId}/{TenantId}/{SiteId} returned no key2.", clusterId, tenantId, siteId);
                 return null;
             }
 
@@ -52,7 +53,7 @@ public sealed class HttpCallbackClient : ICallbackClient
         catch (Exception ex)
         {
             // Never let a callback failure surface the URL/exception detail to the caller; log and deny.
-            _logger.LogError(ex, "Registration callback for tenant {TenantId} failed.", tenantId);
+            _logger.LogError(ex, "Registration callback for {ClusterId}/{TenantId}/{SiteId} failed.", clusterId, tenantId, siteId);
             return null;
         }
     }

@@ -99,8 +99,8 @@ step — but here's exactly what happens so you can implement the client side. (
 
 **The handshake:**
 
-1. Your server exposes a **callback endpoint** that, given `{ tenantId, key1 }`, verifies `key1` against the
-   request it just initiated and responds `{ "key2": "<a strong random secret it generates and stores>" }`.
+1. Your server exposes a **callback endpoint** that, given `{ clusterId, tenantId, siteId, key1 }`, verifies
+   `key1` against the request it just initiated and responds `{ "key2": "<a strong random secret it generates and stores>" }`.
 2. Your server triggers registration for the site:
 
    ```bash
@@ -110,9 +110,11 @@ step — but here's exactly what happens so you can implement the client side. (
    # → 200 OK   (PepperMill called your callbackUrl, got key2, stored only its hash, and created the pepper)
    ```
 
-3. PepperMill calls your `callbackUrl` with `{ tenantId, key1 }`, receives `key2`, stores **only a hash** of it
-   **locked** to that `(tenant, site)`, and creates the site's pepper. Your server keeps `key2` (in its
-   environment) for every future fetch of that site.
+3. PepperMill calls your `callbackUrl` with `{ clusterId, tenantId, siteId, key1 }`, receives `key2`, stores
+   **only a hash** of it **locked** to that site, and creates the site's pepper. Your server keeps `key2` for
+   every future fetch of that site — hold it wherever your servers read secrets (an env var, a secret store,
+   or an encrypted per-site record so any node can read it). PepperMill only ever stores its hash, and doesn't
+   care where you keep your copy.
 
 Notes:
 

@@ -148,7 +148,7 @@ public static class PepperEndpoints
         if (existing is { Locked: true })
             return Results.Conflict(new { error = "Site is already registered." });
 
-        var key2 = await callbackClient.RequestCredentialAsync(request.CallbackUrl, request.TenantId, request.Key1, context.RequestAborted);
+        var key2 = await callbackClient.RequestCredentialAsync(request.CallbackUrl, cluster, request.TenantId, request.SiteId, request.Key1, context.RequestAborted);
         if (string.IsNullOrEmpty(key2))
         {
             await audit.RecordAsync(new AuditEntry(clock.UtcNow, "site.register.failed", cluster, request.TenantId, request.SiteId), context.RequestAborted);
@@ -278,7 +278,7 @@ public static class PepperEndpoints
 
         // Call back to the URL pinned at registration — never a request-supplied one — so an update
         // cannot redirect the handshake to a rogue endpoint.
-        var newKey2 = await callbackClient.RequestCredentialAsync(record.CallbackUrl, request.TenantId, request.Key1, context.RequestAborted);
+        var newKey2 = await callbackClient.RequestCredentialAsync(record.CallbackUrl, cluster, request.TenantId, request.SiteId, request.Key1, context.RequestAborted);
         if (string.IsNullOrEmpty(newKey2))
         {
             await audit.RecordAsync(new AuditEntry(clock.UtcNow, "site.credential.rotate.failed", cluster, request.TenantId, request.SiteId), context.RequestAborted);

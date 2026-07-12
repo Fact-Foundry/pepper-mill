@@ -27,7 +27,7 @@ public class PepperEndpointsTests : IDisposable
     /// <summary>Stands in for the client callback endpoint — issues a <c>key2</c> derived from the challenge <c>key1</c>.</summary>
     private sealed class FakeCallbackClient : ICallbackClient
     {
-        public Task<string?> RequestCredentialAsync(string callbackUrl, string tenantId, string key1, CancellationToken cancellationToken = default)
+        public Task<string?> RequestCredentialAsync(string callbackUrl, string clusterId, string tenantId, string siteId, string key1, CancellationToken cancellationToken = default)
             => Task.FromResult<string?>(Key2For(key1));
     }
 

@@ -20,7 +20,7 @@
 
 3. **A site's credential is established by a callback handshake initiated by the client; the client generates `key2`, and PepperMill creates the pepper.** PepperMill defines the protocol, verifies + stores the credential, and provisions the pepper; the client mints and owns the credential value. The flow:
    1. Client → PepperMill `POST /v1/webhooks/provision`: `{ tenantId, siteId, callbackUrl, key1, rotationIntervalDays? }`.
-   2. PepperMill → `callbackUrl`: presents `{ tenantId, key1 }`.
+   2. PepperMill → `callbackUrl`: presents `{ clusterId, tenantId, siteId, key1 }` (the full identity, so the client can verify what it is issuing for; it still correlates by `key1`).
    3. Client verifies `key1` matches the request it just made and responds `{ key2 }` (the auth credential it generated).
    4. PepperMill stores `(clusterId, tenantId, siteId) → { hash(key2), callbackUrl, rotationPolicy, locked: true }`, **creates the site's pepper**, and returns success to the step-1 caller.
    5. Client retains `key2` (its own environment) for all subsequent fetches of that site.
@@ -44,6 +44,25 @@
 6. **Rotation cadence is part of the registration contract now, but only monthly is implemented initially.** `rotationIntervalDays` (or an equivalent enum) is accepted at registration so the wire format is future-proof, and defaults to monthly. Non-monthly cadences are **deferred** because they require generalizing the epoch from a stateless calendar month (`yyyy-MM`) to a stored **interval + anchor** (`intervalDays`, `nextRotatesAtUtc`) evaluated per site.
 
 7. **PepperMill should be deployed internal / inbound-only; the handshake is the defense if it isn't.** The intended posture is a private network with no public IP, reachable only by trusted client servers. The callback handshake + one-shot lock exist precisely so that a wider-than-intended exposure is not immediately catastrophic — they raise the bar well above a static shared bearer (an attacker must complete a round trip, and cannot overwrite an already-registered site). They do **not** make public exposure safe (see Accepted risks); network isolation remains the primary control. The callback is also the one place PepperMill makes an *outbound* call, so it must be restricted to expected hosts (an allowlist / CIDR guard) so it cannot be turned into an SSRF primitive. **HTTPS is not forced** — an internal deployment may legitimately run plain HTTP on a trusted segment — but it is **strongly recommended**, and effectively required if the service is ever publicly exposed, since `key1`/`key2` would otherwise cross the wire in clear text.
+
+## Request fields (client contract)
+
+A quick reference for the client side — the body fields across the `/v1` endpoints. `clusterId` is the
+only optional identity field; `tenantId` and `siteId` are always required.
+
+| Field | On | Required? | Notes |
+|---|---|---|---|
+| `tenantId` | all | **required** (`400` if blank) | the tenant |
+| `siteId` | all | **required** (`400` if blank) | the site (unique within its tenant) |
+| `clusterId` | all | **optional** — defaults to `"default"` | namespace to segregate multiple independent clusters on one instance; not a security boundary |
+| `callbackUrl` | `provision` | **required** | pinned at registration and reused for `rotate-credential` |
+| `key1` | `provision`, `rotate-credential` | **required** | fresh per-request nonce, echoed to the callback |
+| `rotationIntervalDays` | `provision`, `tenants/schedule` | optional | reserved; only the monthly cadence is honored today |
+
+**Auth:** `provision` is unauthenticated (the handshake + one-shot lock gate it). `peppers/current`,
+`peppers/rotate`, `webhooks/revoke`, `webhooks/rotate-credential`, and `tenants/schedule` require the
+site's `key2` as `Authorization: Bearer <key2>`. The registration callback receives
+`{ clusterId, tenantId, siteId, key1 }` and returns `{ key2 }`.
 
 ## Context
 
