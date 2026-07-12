@@ -7,8 +7,8 @@ namespace FactFoundry.PepperMill.Services;
 /// </summary>
 public interface IEntitlementProvider
 {
-    /// <summary>Whether the credential is valid and entitled to the given tenant's site.</summary>
-    Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default);
+    /// <summary>Whether the credential is valid and entitled to the given site.</summary>
+    Task<bool> IsEntitledAsync(string credential, string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -27,12 +27,13 @@ public sealed class LocalEntitlementProvider : IEntitlementProvider
     }
 
     /// <inheritdoc />
-    public async Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default)
+    public async Task<bool> IsEntitledAsync(string credential, string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(credential) || string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(siteId))
+        if (string.IsNullOrEmpty(credential) || string.IsNullOrWhiteSpace(clusterId)
+            || string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(siteId))
             return false;
 
-        var record = await _credentials.GetAsync(tenantId, siteId, cancellationToken);
+        var record = await _credentials.GetAsync(clusterId, tenantId, siteId, cancellationToken);
         if (record is null)
             return false;
 
@@ -56,11 +57,11 @@ public sealed class PlatformEntitlementProvider : IEntitlementProvider
     }
 
     /// <inheritdoc />
-    public Task<bool> IsEntitledAsync(string credential, string tenantId, string siteId, CancellationToken cancellationToken = default)
+    public Task<bool> IsEntitledAsync(string credential, string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
         _logger.LogWarning(
-            "Platform entitlement mode is configured but not yet implemented; denying request for tenant {TenantId} site {SiteId}.",
-            tenantId, siteId);
+            "Platform entitlement mode is configured but not yet implemented; denying request for {ClusterId}/{TenantId}/{SiteId}.",
+            clusterId, tenantId, siteId);
         return Task.FromResult(false);
     }
 }

@@ -11,8 +11,8 @@ public class FileCredentialStoreTests : IDisposable
     private FileCredentialStore NewStore() =>
         new(Options.Create(new PepperMillOptions { StorePath = _storeDir }));
 
-    private static SiteCredential Sample(string tenantId = "tenant-1", string siteId = "site-1", string key2Hash = "abc123", bool locked = true) =>
-        new(tenantId, siteId, key2Hash, "https://tf.internal/pepper-callback", RotationIntervalDays: null, locked, DateTimeOffset.UtcNow);
+    private static SiteCredential Sample(string tenantId = "tenant-1", string siteId = "site-1", string key2Hash = "abc123", bool locked = true, string clusterId = "default") =>
+        new(clusterId, tenantId, siteId, key2Hash, "https://tf.internal/pepper-callback", RotationIntervalDays: null, locked, DateTimeOffset.UtcNow);
 
     [Fact]
     public async Task SaveThenGet_RoundTrips()
@@ -21,7 +21,7 @@ public class FileCredentialStoreTests : IDisposable
         var cred = Sample();
         await store.SaveAsync(cred);
 
-        var loaded = await store.GetAsync("tenant-1", "site-1");
+        var loaded = await store.GetAsync("default", "tenant-1", "site-1");
 
         Assert.NotNull(loaded);
         Assert.Equal(cred.Key2Hash, loaded!.Key2Hash);
@@ -32,7 +32,7 @@ public class FileCredentialStoreTests : IDisposable
     [Fact]
     public async Task Get_UnknownSite_ReturnsNull()
     {
-        Assert.Null(await NewStore().GetAsync("tenant-1", "nobody"));
+        Assert.Null(await NewStore().GetAsync("default", "tenant-1", "nobody"));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class FileCredentialStoreTests : IDisposable
         await store.SaveAsync(Sample(key2Hash: "old"));
         await store.SaveAsync(Sample(key2Hash: "new"));
 
-        var loaded = await store.GetAsync("tenant-1", "site-1");
+        var loaded = await store.GetAsync("default", "tenant-1", "site-1");
 
         Assert.Equal("new", loaded!.Key2Hash);
     }
@@ -52,9 +52,9 @@ public class FileCredentialStoreTests : IDisposable
     {
         var store = NewStore();
         await store.SaveAsync(Sample());
-        await store.DeleteAsync("tenant-1", "site-1");
+        await store.DeleteAsync("default", "tenant-1", "site-1");
 
-        Assert.Null(await store.GetAsync("tenant-1", "site-1"));
+        Assert.Null(await store.GetAsync("default", "tenant-1", "site-1"));
     }
 
     [Fact]
@@ -64,8 +64,8 @@ public class FileCredentialStoreTests : IDisposable
         await store.SaveAsync(Sample(siteId: "blog", key2Hash: "hash-blog"));
         await store.SaveAsync(Sample(siteId: "shop", key2Hash: "hash-shop"));
 
-        Assert.Equal("hash-blog", (await store.GetAsync("tenant-1", "blog"))!.Key2Hash);
-        Assert.Equal("hash-shop", (await store.GetAsync("tenant-1", "shop"))!.Key2Hash);
+        Assert.Equal("hash-blog", (await store.GetAsync("default", "tenant-1", "blog"))!.Key2Hash);
+        Assert.Equal("hash-shop", (await store.GetAsync("default", "tenant-1", "shop"))!.Key2Hash);
     }
 
     [Fact]
@@ -75,8 +75,8 @@ public class FileCredentialStoreTests : IDisposable
         await store.SaveAsync(Sample(tenantId: "tenant-a", siteId: "shared", key2Hash: "hash-a"));
         await store.SaveAsync(Sample(tenantId: "tenant-b", siteId: "shared", key2Hash: "hash-b"));
 
-        Assert.Equal("hash-a", (await store.GetAsync("tenant-a", "shared"))!.Key2Hash);
-        Assert.Equal("hash-b", (await store.GetAsync("tenant-b", "shared"))!.Key2Hash);
+        Assert.Equal("hash-a", (await store.GetAsync("default", "tenant-a", "shared"))!.Key2Hash);
+        Assert.Equal("hash-b", (await store.GetAsync("default", "tenant-b", "shared"))!.Key2Hash);
     }
 
     [Fact]

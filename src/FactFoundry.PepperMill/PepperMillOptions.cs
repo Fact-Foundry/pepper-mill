@@ -28,6 +28,18 @@ public sealed class PepperMillOptions
     /// </summary>
     public List<string> CallbackAllowedHosts { get; set; } = [];
 
-    /// <summary>Directory holding the encrypted per-site pepper files and per-site credential records.</summary>
+    /// <summary>Directory holding the encrypted per-site pepper files and per-site credential records (File backend).</summary>
     public string StorePath { get; set; } = "peppers";
+
+    /// <summary>
+    /// Which storage backend holds peppers and credentials: <c>File</c> (default — encrypted files in
+    /// <see cref="StorePath"/>, zero dependencies) or <c>Postgres</c> (two tables, for shared/HA storage).
+    /// </summary>
+    public string StorageProvider { get; set; } = "File";
+
+    /// <summary>
+    /// Postgres connection string, required when <see cref="StorageProvider"/> is <c>Postgres</c>. The
+    /// schema is created idempotently at startup; peppers are still encrypted app-side before storage.
+    /// </summary>
+    public string? PostgresConnectionString { get; set; }
 }

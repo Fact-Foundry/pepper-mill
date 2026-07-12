@@ -18,8 +18,10 @@ auth/provisioning model. Operational detail is in `docs/operations.md`.
 
 ## Architecture
 
-- .NET 10, ASP.NET Minimal API. No database — peppers and per-site credential records are held as
-  files in an encrypted store (peppers encrypted at rest; credential records hold hashes only).
+- .NET 10, ASP.NET Minimal API. Pluggable storage behind `IPepperStore` / `ICredentialStore`:
+  `File` (default — encrypted files, zero deps) or `Postgres` (for shared/HA storage). Peppers are
+  encrypted app-side (AES-256-GCM via the shared `PepperCipher`) before storage on **every** backend,
+  so the store only ever holds ciphertext; credential records hold hashes only.
 - **OpenAPI + Scalar** for the interactive API reference (`/scalar/v1`); no Swashbuckle.
 - A site registers via a callback handshake to establish its bearer credential (`key2`) and create
   its pepper; a fetch resolves that credential against the `(tenantId, siteId)` record, so the body's

@@ -11,20 +11,20 @@ internal sealed class TestClock(DateTimeOffset now) : IClock
 /// <summary>An in-memory <see cref="IPepperStore"/> for fast service-level tests.</summary>
 internal sealed class InMemoryPepperStore : IPepperStore
 {
-    private readonly Dictionary<(string TenantId, string SiteId), StoredPepper> _peppers = new();
+    private readonly Dictionary<(string ClusterId, string TenantId, string SiteId), StoredPepper> _peppers = new();
 
-    public Task<StoredPepper?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_peppers.GetValueOrDefault((tenantId, siteId)));
+    public Task<StoredPepper?> GetAsync(string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_peppers.GetValueOrDefault((clusterId, tenantId, siteId)));
 
     public Task SaveAsync(StoredPepper pepper, CancellationToken cancellationToken = default)
     {
-        _peppers[(pepper.TenantId, pepper.SiteId)] = pepper;
+        _peppers[(pepper.ClusterId, pepper.TenantId, pepper.SiteId)] = pepper;
         return Task.CompletedTask;
     }
 
-    public Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        _peppers.Remove((tenantId, siteId));
+        _peppers.Remove((clusterId, tenantId, siteId));
         return Task.CompletedTask;
     }
 
@@ -35,20 +35,20 @@ internal sealed class InMemoryPepperStore : IPepperStore
 /// <summary>An in-memory <see cref="ICredentialStore"/> for fast entitlement tests.</summary>
 internal sealed class InMemoryCredentialStore : ICredentialStore
 {
-    private readonly Dictionary<(string TenantId, string SiteId), SiteCredential> _creds = new();
+    private readonly Dictionary<(string ClusterId, string TenantId, string SiteId), SiteCredential> _creds = new();
 
-    public Task<SiteCredential?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_creds.GetValueOrDefault((tenantId, siteId)));
+    public Task<SiteCredential?> GetAsync(string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_creds.GetValueOrDefault((clusterId, tenantId, siteId)));
 
     public Task SaveAsync(SiteCredential credential, CancellationToken cancellationToken = default)
     {
-        _creds[(credential.TenantId, credential.SiteId)] = credential;
+        _creds[(credential.ClusterId, credential.TenantId, credential.SiteId)] = credential;
         return Task.CompletedTask;
     }
 
-    public Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        _creds.Remove((tenantId, siteId));
+        _creds.Remove((clusterId, tenantId, siteId));
         return Task.CompletedTask;
     }
 }

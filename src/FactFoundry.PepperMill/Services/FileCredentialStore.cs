@@ -7,7 +7,7 @@ namespace FactFoundry.PepperMill.Services;
 
 /// <summary>
 /// File-backed <see cref="ICredentialStore"/>. One JSON file per site, named by a hash of the
-/// <c>(tenantId, siteId)</c> pair (so neither id appears in a path). Records hold only a credential
+/// <c>(clusterId, tenantId, siteId)</c> triple (so no id appears in a path). Records hold only a credential
 /// hash and non-secret metadata, so — unlike the pepper store — they are not encrypted: there is
 /// nothing secret to protect at rest. Files live in a <c>credentials</c> subdirectory of the store
 /// path, separate from the <c>.pepper</c> files.
@@ -27,9 +27,9 @@ public sealed class FileCredentialStore : ICredentialStore
     }
 
     /// <inheritdoc />
-    public async Task<SiteCredential?> GetAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
+    public async Task<SiteCredential?> GetAsync(string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(tenantId, siteId);
+        var path = PathFor(clusterId, tenantId, siteId);
         if (!File.Exists(path))
             return null;
 
@@ -49,7 +49,7 @@ public sealed class FileCredentialStore : ICredentialStore
     /// <inheritdoc />
     public async Task SaveAsync(SiteCredential credential, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(credential.TenantId, credential.SiteId);
+        var path = PathFor(credential.ClusterId, credential.TenantId, credential.SiteId);
         var payload = JsonSerializer.SerializeToUtf8Bytes(credential, JsonOptions);
 
         await _gate.WaitAsync(cancellationToken);
@@ -66,9 +66,9 @@ public sealed class FileCredentialStore : ICredentialStore
     }
 
     /// <inheritdoc />
-    public async Task DeleteAsync(string tenantId, string siteId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(string clusterId, string tenantId, string siteId, CancellationToken cancellationToken = default)
     {
-        var path = PathFor(tenantId, siteId);
+        var path = PathFor(clusterId, tenantId, siteId);
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -81,12 +81,11 @@ public sealed class FileCredentialStore : ICredentialStore
         }
     }
 
-    /// <summary>Maps a (tenant, site) pair to its credential file path via a collision-resistant hash — the ids never appear in the path.</summary>
-    private string PathFor(string tenantId, string siteId)
+    /// <summary>Maps a (cluster, tenant, site) triple to its credential file path via a collision-resistant hash — the ids never appear in the path.</summary>
+    private string PathFor(string clusterId, string tenantId, string siteId)
     {
-        // Length-prefix each component so distinct (tenant, site) pairs can never collide onto the
-        // same file (e.g. "ab"/"c" vs "a"/"bc").
-        var composite = $"{tenantId.Length}:{tenantId}:{siteId.Length}:{siteId}";
+        // Length-prefix each component so distinct triples can never collide onto the same file.
+        var composite = $"{clusterId.Length}:{clusterId}:{tenantId.Length}:{tenantId}:{siteId.Length}:{siteId}";
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(composite)));
         return Path.Combine(_directory, hash + ".cred");
     }

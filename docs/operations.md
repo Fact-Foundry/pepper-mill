@@ -12,7 +12,17 @@ All settings live under the `PepperMill` configuration section (env vars use `Pe
 | `EntitlementMode` | `Local` (resolve against registered site credentials) or `Platform` (external delegation, not implemented) | default `Local` |
 | `StorageKeyBase64` | base64 of a **32-byte** AES-256 master key that encrypts peppers at rest | **yes, outside Development** |
 | `CallbackAllowedHosts` | hostnames PepperMill may call back to during registration (SSRF guard); indexed env keys `__0`, `__1`, … | yes, to register |
-| `StorePath` | directory holding encrypted pepper files, credential records + the audit log | default `peppers` |
+| `StorageProvider` | storage backend: `File` (encrypted files, zero deps) or `Postgres` (shared/HA) | default `File` |
+| `PostgresConnectionString` | Postgres connection string; the schema is created idempotently at startup | **yes, if `StorageProvider = Postgres`** |
+| `StorePath` | directory holding the encrypted pepper files, credential records, and the audit log (File backend; the audit log lives here on any backend) | default `peppers` |
+
+### Storage backends
+
+`File` (default) is a zero-dependency encrypted file store — ideal for self-hosting. `Postgres` keys two
+tables (`peppers`, `credentials`) by `(cluster_id, tenant_id, site_id)` and is the choice for shared/HA
+storage (both nodes point at the same database — see [ADR-002](design/decisions/002-storage-backends-and-ha.md)).
+**Peppers are AES-256-GCM encrypted app-side before storage on either backend**, so the store only ever
+holds ciphertext; the master key (`StorageKeyBase64`) is never given to the database.
 
 ### Generating the storage key
 

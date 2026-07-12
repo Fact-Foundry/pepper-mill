@@ -5,11 +5,12 @@ namespace FactFoundry.PepperMill.Services;
 
 /// <summary>An audit record. Never contains pepper material — only metadata about an event.</summary>
 /// <param name="Timestamp">When it happened (UTC).</param>
-/// <param name="Event">Event kind, e.g. "pepper.fetch", "pepper.revoke".</param>
+/// <param name="Event">Event kind, e.g. "pepper.fetch", "site.revoke".</param>
+/// <param name="ClusterId">The cluster namespace involved.</param>
 /// <param name="TenantId">The tenant involved.</param>
 /// <param name="SiteId">The site involved (unique within the tenant); every event is site-scoped.</param>
 /// <param name="Detail">Optional free-text context (never a secret).</param>
-public sealed record AuditEntry(DateTimeOffset Timestamp, string Event, string TenantId, string SiteId, string? Detail = null);
+public sealed record AuditEntry(DateTimeOffset Timestamp, string Event, string ClusterId, string TenantId, string SiteId, string? Detail = null);
 
 /// <summary>Appends audit records. An external provider could delegate this elsewhere.</summary>
 public interface IAuditLog

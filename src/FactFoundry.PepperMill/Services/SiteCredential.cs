@@ -4,8 +4,9 @@ namespace FactFoundry.PepperMill.Services;
 /// A site's authentication record, established when the site is registered and held at rest. Contains
 /// no secret material — only a hash of the credential (<c>key2</c>) plus non-secret provisioning
 /// metadata — so a copy of the record cannot be used to authenticate. Keyed by
-/// <c>(TenantId, SiteId)</c>, so a leaked credential is scoped to a single site.
+/// <c>(ClusterId, TenantId, SiteId)</c>, so a leaked credential is scoped to a single site.
 /// </summary>
+/// <param name="ClusterId">The cluster namespace (defaults to <c>"default"</c>); segregates otherwise same-named tenants/sites.</param>
 /// <param name="TenantId">The tenant that owns the site.</param>
 /// <param name="SiteId">The site this credential authenticates (unique within the tenant).</param>
 /// <param name="Key2Hash">Lowercase hex SHA-256 of the site's bearer credential (<c>key2</c>). The raw credential is never stored.</param>
@@ -14,6 +15,7 @@ namespace FactFoundry.PepperMill.Services;
 /// <param name="Locked">Whether registration is complete; when true, further registration attempts for the site are rejected.</param>
 /// <param name="CreatedAtUtc">When the credential was registered.</param>
 public sealed record SiteCredential(
+    string ClusterId,
     string TenantId,
     string SiteId,
     string Key2Hash,

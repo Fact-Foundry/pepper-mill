@@ -40,6 +40,18 @@ provider, not reimplemented here.
 | `Local` (ships here) | resolves the presented credential against the registered site records |
 | `Platform` | delegates to an external provider *(not yet implemented)* |
 
+## Storage (pluggable backend)
+
+Peppers and credentials live behind a pluggable store, chosen by `StorageProvider`:
+
+| Backend | For whom |
+|---|---|
+| `File` (default) | self-hosters — encrypted files, zero dependencies |
+| `Postgres` | shared/HA storage — both nodes point at one database ([ADR-002](docs/design/decisions/002-storage-backends-and-ha.md)) |
+
+Peppers are AES-256-GCM encrypted **app-side before storage on either backend**, so the store only ever
+holds ciphertext — the master key never reaches it.
+
 ## Quick start (dev)
 
 ```bash

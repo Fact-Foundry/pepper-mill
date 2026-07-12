@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using FactFoundry.PepperMill;
 using FactFoundry.PepperMill.Api;
 using FactFoundry.PepperMill.Services;
+using Npgsql;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,16 +15,31 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 
-// Encrypted pepper store — resolve the 32-byte master key up front.
+// Pepper cipher (holds the 32-byte master key) — shared by whichever storage backend is selected.
 var (masterKey, ephemeralKey) = ResolveMasterKey(options, builder.Environment);
-builder.Services.AddSingleton<IPepperStore>(sp => new EncryptedFilePepperStore(
-    masterKey, options.StorePath, sp.GetRequiredService<ILogger<EncryptedFilePepperStore>>()));
+builder.Services.AddSingleton(new PepperCipher(masterKey));
+
+// Storage backend: File (default, encrypted files) or Postgres (shared/HA). Peppers are encrypted
+// app-side either way, so the backend only ever holds ciphertext.
+if (string.Equals(options.StorageProvider, "Postgres", StringComparison.OrdinalIgnoreCase))
+{
+    var connectionString = options.PostgresConnectionString
+        ?? throw new InvalidOperationException("PepperMill:PostgresConnectionString is required when StorageProvider is Postgres.");
+    var dataSource = NpgsqlDataSource.Create(connectionString);
+    await PostgresSchema.EnsureAsync(dataSource); // idempotent — safe on every startup
+    builder.Services.AddSingleton(dataSource);
+    builder.Services.AddSingleton<IPepperStore>(sp => new PostgresPepperStore(dataSource, sp.GetRequiredService<PepperCipher>()));
+    builder.Services.AddSingleton<ICredentialStore>(sp => new PostgresCredentialStore(dataSource));
+}
+else
+{
+    builder.Services.AddSingleton<IPepperStore>(sp => new EncryptedFilePepperStore(
+        sp.GetRequiredService<PepperCipher>(), options.StorePath, sp.GetRequiredService<ILogger<EncryptedFilePepperStore>>()));
+    builder.Services.AddSingleton<ICredentialStore, FileCredentialStore>();
+}
 
 builder.Services.AddSingleton<PepperService>();
 builder.Services.AddSingleton<IAuditLog, FileAuditLog>();
-
-// Per-site credential records (established at registration; hashes only).
-builder.Services.AddSingleton<ICredentialStore, FileCredentialStore>();
 
 // Outbound client for the registration callback handshake.
 builder.Services.AddHttpClient<ICallbackClient, HttpCallbackClient>();
