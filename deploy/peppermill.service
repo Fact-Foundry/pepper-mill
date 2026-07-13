@@ -1,0 +1,31 @@
+[Unit]
+Description=PepperMill key-custody service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=peppermill
+Group=peppermill
+ExecStart=/opt/peppermill/FactFoundry.PepperMill
+WorkingDirectory=/opt/peppermill
+EnvironmentFile=/etc/peppermill/peppermill.env
+StateDirectory=peppermill
+Restart=on-failure
+RestartSec=5
+
+# Hardening — this service holds key material.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

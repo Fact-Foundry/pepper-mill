@@ -1,0 +1,40 @@
+# nfpm config — builds .rpm / .deb / .pkg.tar.zst (Arch) from the self-contained publish output.
+# Usage (VERSION + ARCH come from CI / the environment):
+#   dotnet publish … -o deploy/out/app
+#   VERSION=1.2.3 ARCH=amd64 nfpm package -f deploy/nfpm.yaml -p rpm       -t deploy/dist/
+#   VERSION=1.2.3 ARCH=amd64 nfpm package -f deploy/nfpm.yaml -p deb       -t deploy/dist/
+#   VERSION=1.2.3 ARCH=amd64 nfpm package -f deploy/nfpm.yaml -p archlinux -t deploy/dist/
+# nfpm maps ARCH amd64→x86_64 / arm64→aarch64 per format.
+name: peppermill
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: Fact Foundry <noreply@factfoundry.dev>
+description: |
+  PepperMill — key-custody service. Generates, encrypts, serves, and monthly-rotates the per-site
+  peppers that key visitor-identity hashes, keeping that secret outside the customer's infrastructure.
+vendor: Fact Foundry
+license: AGPL-3.0-or-later
+
+# The service account and enablement are handled in the scripts below.
+contents:
+  - src: ./deploy/out/app/FactFoundry.PepperMill
+    dst: /opt/peppermill/FactFoundry.PepperMill
+    file_info:
+      mode: 0755
+  - src: ./deploy/out/app/appsettings.json
+    dst: /opt/peppermill/appsettings.json
+  - src: ./deploy/peppermill.service
+    dst: /usr/lib/systemd/system/peppermill.service
+  # Config file — shipped as a template; noreplace keeps the operator's edited copy on upgrade.
+  - src: ./deploy/peppermill.env.example
+    dst: /etc/peppermill/peppermill.env
+    type: config|noreplace
+    file_info:
+      mode: 0600
+
+scripts:
+  postinstall: ./deploy/scripts/postinstall.sh
+  preremove: ./deploy/scripts/preremove.sh

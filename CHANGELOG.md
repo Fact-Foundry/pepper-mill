@@ -21,6 +21,8 @@
 - Fail-fast on a missing storage key outside Development; ephemeral key in Development (peppers do not survive restart)
 - OpenAPI document (`/openapi/v1.json`) + Scalar interactive API reference (`/scalar/v1`)
 - Pinned `Microsoft.OpenApi` to 2.10.0 to clear advisory GHSA-v5pm-xwqc-g5wc carried by the transitive 2.0.0
+- Release packages via CI — pushing a `v*` tag runs `.github/workflows/release.yml`, which builds self-contained binaries and `.rpm` + `.deb` + `.pkg.tar.zst` (Arch) packages (x64 and arm64) with **nfpm** and attaches them, plus the tarball, to the GitHub Release. A server install becomes `sudo dnf install ./peppermill-*.rpm` (installs the hardened service, creates the user, enables it; operator sets the master key and starts). Packaging assets (`deploy/nfpm.yaml`, `deploy/peppermill.service`, env template, pre/post scripts) are the single source of truth shared with `publish.sh`
+- No-Docker deployment — `deploy/publish.sh` builds a self-contained single-file binary (bundles the .NET runtime; the server needs nothing installed) and emits a ready-to-ship bundle: the binary, a **hardened `peppermill.service` systemd unit** (non-root, `ProtectSystem=strict`, private tmp/devices, …), an env template, and a one-shot `install.sh` (creates the service user, installs to `/opt/peppermill`, config in `/etc/peppermill`, store in the systemd `StateDirectory`)
 - Container support — multi-stage `Dockerfile` (non-root, `/health` HEALTHCHECK) and `docker-compose.yml` with a durable pepper-store volume and required-secret guards; adds `.env.example` and `.dockerignore`
 
 ### Docs

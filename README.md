@@ -90,6 +90,22 @@ an optional `clusterId` (defaults to `default`) — set it to segregate multiple
 served by one instance. The [User Guide](docs/user-guide.md) walks through it. For production, set a
 real 32-byte storage key and configure `CallbackAllowedHosts` — see [`docs/operations.md`](docs/operations.md).
 
+## Deploy to a server (no Docker)
+
+`deploy/publish.sh` builds a **self-contained single-file binary** (bundles the runtime — nothing to
+install on the server) plus a hardened `systemd` unit, env template, and one-shot installer:
+
+```bash
+bash deploy/publish.sh                          # → deploy/peppermill-linux-x64.tar.gz
+# on the server:  tar xzf … && sudo ./install.sh && systemctl start peppermill
+```
+
+Or grab a package from a **[GitHub Release](../../releases)** — tagged versions ship `.rpm` / `.deb` /
+`.pkg.tar.zst` (x64 + arm64), so a server install is just `sudo dnf install ./peppermill-….rpm` (or
+`pacman -U` / `apt install`; installs the service, user, and hardening; you set the master key and
+`systemctl start`). Full walkthrough in
+[`docs/operations.md`](docs/operations.md#deploy-to-a-server-systemd-no-docker).
+
 ## Run with Docker
 
 ```bash

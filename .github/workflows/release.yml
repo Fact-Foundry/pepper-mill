@@ -1,0 +1,52 @@
+name: release
+
+# Push a version tag (e.g. `git tag v1.2.3 && git push origin v1.2.3`) and this builds
+# self-contained binaries + .rpm/.deb packages and attaches them to the GitHub Release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # needed to create/attach release assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install nfpm
+        run: |
+          NFPM_VERSION=2.43.0
+          curl -sSfL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin nfpm
+          nfpm --version
+
+      - name: Build binaries + packages (x64 and arm64)
+        env:
+          VERSION: ${{ github.ref_name }}   # e.g. v1.2.3
+        run: |
+          set -euo pipefail
+          VER="${VERSION#v}"                # strip the leading v → 1.2.3
+          mkdir -p deploy/dist
+          for pair in "linux-x64:amd64" "linux-arm64:arm64"; do
+            rid="${pair%%:*}"; arch="${pair##*:}"
+            RID="$rid" bash deploy/publish.sh          # → self-contained binary + deploy/peppermill-$rid.tar.gz
+            for fmt in rpm deb archlinux; do           # .rpm / .deb / .pkg.tar.zst
+              VERSION="$VER" ARCH="$arch" nfpm package -f deploy/nfpm.yaml -p "$fmt" -t deploy/dist/
+            done
+          done
+          ls -lh deploy/dist deploy/peppermill-*.tar.gz
+
+      - name: Attach artifacts to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            deploy/dist/*.rpm
+            deploy/dist/*.deb
+            deploy/dist/*.pkg.tar.zst
+            deploy/peppermill-*.tar.gz

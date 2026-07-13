@@ -82,6 +82,56 @@ metadata only (timestamp, event, tenant/site id, epoch) — **never** pepper or 
   network), but not forced — an internal segment may legitimately run plain HTTP.
 - Health probe: `GET /health`.
 
+## Deploy to a server (systemd, no Docker)
+
+`deploy/publish.sh` builds a **self-contained single-file binary** (bundles the .NET runtime — the
+server needs nothing installed) and generates a ready-to-ship bundle: the binary, a hardened
+`peppermill.service` systemd unit, an env template, and a one-shot `install.sh`.
+
+```bash
+bash deploy/publish.sh                 # → deploy/peppermill-linux-x64.tar.gz
+#   RID=linux-arm64 bash deploy/publish.sh   # for ARM servers
+```
+
+On the target server:
+
+```bash
+tar xzf peppermill-linux-x64.tar.gz
+sudo ./install.sh                      # installs to /opt/peppermill, adds the service (disabled-until-configured)
+sudoedit /etc/peppermill/peppermill.env   # set PepperMill__StorageKeyBase64 (head -c 32 /dev/urandom | base64)
+systemctl start peppermill
+curl http://127.0.0.1:5130/health      # → {"status":"ok"}
+journalctl -u peppermill -f            # logs
+```
+
+The unit runs as a non-root `peppermill` user with systemd hardening (`ProtectSystem=strict`,
+`NoNewPrivileges`, private tmp/devices, …). Config lives in `/etc/peppermill/peppermill.env`
+(`chmod 600`, root-owned — systemd reads it before dropping privileges, so the master key never needs
+to be readable by the service account). The pepper store lives in the systemd `StateDirectory`
+(`/var/lib/peppermill`); back that up. Put your reverse proxy (TLS) in front, keeping the app bound to
+`127.0.0.1` per the internal-only posture.
+
+### Install from a release package (rpm / deb)
+
+Pushing a version tag (`git tag v1.2.3 && git push origin v1.2.3`) runs the `release` GitHub Actions
+workflow, which builds `.rpm` + `.deb` + `.pkg.tar.zst` packages (x64 and arm64) and the tarball and
+**attaches them to the GitHub Release**. Downloading and installing is then a one-liner — no build, no
+runtime:
+
+```bash
+# RHEL / Fedora / Rocky / Alma
+sudo dnf install ./peppermill-1.2.3-1.x86_64.rpm
+# Debian / Ubuntu
+sudo apt install ./peppermill_1.2.3_amd64.deb
+# Arch / Manjaro
+sudo pacman -U ./peppermill-1.2.3-1-x86_64.pkg.tar.zst
+```
+
+The package installs the binary to `/opt/peppermill`, the hardened unit to
+`/usr/lib/systemd/system/peppermill.service`, and a config template to `/etc/peppermill/peppermill.env`
+(preserved across upgrades), creates the `peppermill` user, and enables the service. Then the same two
+steps: set `PepperMill__StorageKeyBase64` in the env file, and `systemctl start peppermill`.
+
 ## Interactive API (Scalar)
 
 `GET /scalar/v1` serves an interactive API reference (the modern replacement for Swagger UI); the raw
